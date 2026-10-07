@@ -25,14 +25,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
+# Environment-specific values are read from a `.env` file in the project root
+# (copy `.env.example` to `.env` for local development).
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%o9!c3rf02q6usr!vw^s96^t*(dsv&ezbs)_u_k7^z1oa$ik0r'
+SECRET_KEY = env.str("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool("DEBUG", default=False)
 
-ALLOWED_HOSTS = ["*"]
-CSRF_TRUSTED_ORIGINS = ['https://development-server.up.railway.app']
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 SECURE_CROSS_ORIGIN_OPENER_POLICY='same-origin-allow-popups'
 
 
@@ -50,13 +53,13 @@ INSTALLED_APPS = [
 
     # Third Party
     'taggit',
-    'crispy_bootstrap5',
     'django_ckeditor_5',
-    'paypal.standard.ipn',
+    'ecomprj.apps.PayPalIPNConfig',  # paypal.standard.ipn
 
     # Custom Apps
     'core',
     'userauths',
+    'useradmin',
 ]
 
 MIDDLEWARE = [
@@ -130,8 +133,6 @@ TIME_ZONE = 'UTC'
 
 USE_I18N = True
 
-USE_L10N = True
-
 USE_TZ = True
 
 
@@ -183,7 +184,6 @@ JAZZMIN_UI_TWEAKS = {
     "sidebar_nav_legacy_style": False,
     "sidebar_nav_flat_style": False,
     "theme": "default",
-    "dark_mode_theme": None,
     "button_classes": {
         "primary": "btn-outline-primary",
         "secondary": "btn-outline-secondary",
@@ -200,15 +200,9 @@ LOGOUT_REDIRECT_URL = "userauths:sign-in"
 
 AUTH_USER_MODEL = 'userauths.User'
 
-CKEDITOR_UPLOAD_PATH = 'uploads/'
-
 MESSAGE_TAGS = {
     messages.ERROR: 'danger',
 }
-
-# CRISPY_TEMPLATE_PACK = 'bootstrap4'
-CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
-CRISPY_TEMPLATE_PACK = "bootstrap5"
 
 
 customColorPalette = [
@@ -377,9 +371,9 @@ CKEDITOR_5_CONFIGS = {
     },
 }
 
-STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY")
-STRIPE_PUBLIC_KEY = env("STRIPE_PUBLIC_KEY")
+STRIPE_SECRET_KEY = env.str("STRIPE_SECRET_KEY", default="")
+STRIPE_PUBLIC_KEY = env.str("STRIPE_PUBLIC_KEY", default="")
 
 
-PAYPAL_RECEIVER_EMAIL = 'businessdestiny@gmail.com'
-PAYPAL_TEST = True
+PAYPAL_RECEIVER_EMAIL = env.str("PAYPAL_RECEIVER_EMAIL", default="")
+PAYPAL_TEST = env.bool("PAYPAL_TEST", default=True)
