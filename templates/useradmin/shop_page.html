@@ -13,7 +13,11 @@
             <div class="row">
                 <div class="col-xl col-lg flex-grow-0" style="flex-basis: 230px;">
                     <div class="img-thumbnail shadow w-100 bg-white position-relative text-center" style="height: 190px; width: 200px; margin-top: -120px;">
-                        <img src="{{ request.user.profile.image.url|default:'https://www.testhouse.net/wp-content/uploads/2021/11/default-avatar.jpg' }}" class="center-xy img-fluid" alt="Logo Brand" />
+                        {% if request.user.profile.image %}
+                        <img src="{{ request.user.profile.image.url }}" class="center-xy img-fluid" alt="Logo Brand" />
+                        {% else %}
+                        <img src="https://www.testhouse.net/wp-content/uploads/2021/11/default-avatar.jpg" class="center-xy img-fluid" alt="Logo Brand" />
+                        {% endif %}
 
                     </div>
                 </div>
