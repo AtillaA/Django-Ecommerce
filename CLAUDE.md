@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Django ecommerce storefront (multi-vendor grocery-style shop) built from a tutorial template
-(Desphixs / "Nest" HTML theme). The store currently has no data; content is added via the admin.
+(Desphixs / "Nest" HTML theme). The store has no real data yet; `seed_test_data` adds disposable
+test products, and real content is added via the admin.
 
 ## Standing instructions
 
@@ -26,10 +27,12 @@ cp .env.example .env            # required: settings read SECRET_KEY/DEBUG etc. 
 python manage.py migrate
 python manage.py runserver      # http://127.0.0.1:8000
 python manage.py createsuperuser   # prompts for email, username, password
+python manage.py seed_test_data            # test categories/vendors/products; re-running replaces them
+python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # no tests exist yet (tests.py files are empty)
+python manage.py test           # tests live in core/tests.py; other apps have none yet
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -56,7 +59,7 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 |---|---|---|
 | Product catalogue: list, detail, category, vendor, tag, search, filter | `core` | ? |
 | Cart (stored in the session) | `core` `add_to_cart` / `cart_view` | ? |
-| Checkout and payments: Stripe Checkout, PayPal buttons, coupons | `core` `checkout`, `create_checkout_session` | ? |
+| Checkout and payments: mock provider in development, Stripe Checkout/PayPal buttons otherwise, coupons | `core` `checkout`, `mock_payment`, `create_checkout_session` | ? |
 | Accounts: sign up/in with email, profile | `userauths` | ? |
 | Customer dashboard: orders, addresses | `core` `customer_dashboard` | ? |
 | Wishlist | `core` | ? |
@@ -69,10 +72,23 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 - Products only appear on the storefront when `product_status == "published"` (new ones default
   to `in_review`); the homepage shows only `featured` ones.
+- All data is disposable until launch. After model changes that clash with existing rows,
+  resetting is fine: `rm db.sqlite3 && python manage.py migrate && python manage.py seed_test_data`.
+- `seed_test_data` marks its rows by IDs (`pid`/`cid`/`vid`) starting with `test-`, which
+  generated IDs never do; `--delete` removes only those, plus their gallery images, reviews,
+  wishlist rows, unused tags and `media/test-data/`. Update its `PRODUCTS` list when the
+  Product model changes (`core/tests.py` fails if it breaks).
+- Deleting a product any other way (e.g. in the admin) leaves its wishlist rows with
+  `product=None`, which makes `/wishlist/` return 500. Delete those rows too.
 - `.env` is git-ignored and required. `SECRET_KEY` has no default; `DEBUG` defaults to False. The
   old hard-coded secret key is public in git history: never use it in production.
-- Stripe/PayPal settings come from `.env` (`STRIPE_*`, `PAYPAL_RECEIVER_EMAIL`, `PAYPAL_TEST`).
-  Payments won't work until those are set.
+- Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
+  `DEBUG` off). Checkout then shows one "test payment" button; `core/payments.py` sends the
+  order's customer details and amount to a fake provider that always approves, the order is
+  marked paid (reference `mock_…` stored in `stripe_payment_intent`) and the cart is emptied.
+  The site never collects card details; a real provider must take them on its own hosted page.
+- With `PAYMENT_MOCK=False` the Stripe/PayPal buttons return; they need `STRIPE_*`,
+  `PAYPAL_RECEIVER_EMAIL` and `PAYPAL_TEST` in `.env`.
 - `ecomprj/apps.py` pins django-paypal's IPN app to `AutoField`. Without it, `makemigrations`
   tries to write a migration into the installed package.
 - `core/migrations/0010` was edited to use `models.TextField` instead of the retired
@@ -88,23 +104,30 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 - Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and
   orders are built from them.
-- `payment_completed_view` marks an order paid on visit without verifying the Stripe payment,
-  and doesn't check the order belongs to the user.
-- Missing ownership checks: `wishlist_view` lists every user's wishlist; `remove_wishlist`,
-  `make_address_default` (resets **all** users' addresses) and `checkout` act on any ID.
+- With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
+  verifying the Stripe payment.
+- `create_checkout_session` is `csrf_exempt` with no sign-in or ownership check, and resets
+  `paid_status` to False on whatever order ID it is given.
+- Missing ownership checks: `wishlist_view` lists every user's wishlist; `remove_wishlist` and
+  `make_address_default` (resets **all** users' addresses) act on any ID.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form);
   `change_order_status` is `csrf_exempt`.
 - Views crash for anonymous users instead of redirecting: `ajax_add_review`, `add_to_wishlist`,
-  `save_checkout_info`, `order_detail`. Many views use `.get()` without 404 handling.
+  `order_detail`. Many views use `.get()` without 404 handling.
 - `filter_product`: the `else` branches reset the queryset, so price and category filters are
   dropped unless both a category and a vendor are selected.
 - Login/sign-up redirect to an unvalidated `next` parameter.
+- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
+  templates show it as the discount ("-83% Off").
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
 - Leftover template content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
   `partials/base.html`), "Nestify" default vendor name, large static demo sections in
-  `core/index.html`, fallback avatars hotlinked from external sites.
+  `core/index.html` (including hardcoded "Milks & Dairies" labels on the homepage category
+  sidebar, ~line 3006, and demo tab names), hardcoded breadcrumb and "(32 reviews)" on
+  `core/product-detail.html`, fallback avatars hotlinked from external sites.
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
   and a dead Cloudflare `email-decode.min.js` reference.
-- Debug `print()` calls throughout the views. No automated tests.
+- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to
+  the server log. Most features have no tests.

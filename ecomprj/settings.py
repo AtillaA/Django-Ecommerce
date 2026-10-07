@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/3.2/ref/settings/
 from pathlib import Path
 import os
 from django.contrib.messages import constants as messages
+from django.core.exceptions import ImproperlyConfigured
 
 from environs import Env
 env = Env()
@@ -377,3 +378,10 @@ STRIPE_PUBLIC_KEY = env.str("STRIPE_PUBLIC_KEY", default="")
 
 PAYPAL_RECEIVER_EMAIL = env.str("PAYPAL_RECEIVER_EMAIL", default="")
 PAYPAL_TEST = env.bool("PAYPAL_TEST", default=True)
+
+# Mock payments replace the Stripe/PayPal buttons with a fake provider that approves every
+# payment (see core/payments.py). Orders get marked paid without charging anyone, so this is
+# refused outside DEBUG.
+PAYMENT_MOCK = env.bool("PAYMENT_MOCK", default=DEBUG)
+if PAYMENT_MOCK and not DEBUG:
+    raise ImproperlyConfigured("PAYMENT_MOCK must not be enabled when DEBUG is off.")
