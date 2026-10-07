@@ -268,7 +268,11 @@
                                                                 <div class="single-comment justify-content-between d-flex mb-30">
                                                                     <div class="user justify-content-between d-flex">
                                                                         <div class="thumb text-center">
+                                                                            {% if r.user.profile.image %}
                                                                             <img src="{{ r.user.profile.image.url }}" style="width: 100px; height: 100px; object-fit: cover;" alt="" />
+                                                                            {% else %}
+                                                                            <img src="https://t4.ftcdn.net/jpg/00/64/67/63/360_F_64676383_LdbmhiNM6Ypzb3FM4PPuFP9rHe7ri8Ju.jpg" style="width: 100px; height: 100px; object-fit: cover;" alt="" />
+                                                                            {% endif %}
                                                                             <a href="#" class="font-heading text-brand">{{r.user.username|title}}</a>
                                                                         </div>
 
