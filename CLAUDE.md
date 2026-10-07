@@ -29,7 +29,7 @@ python manage.py createsuperuser   # prompts for email, username, password
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # no tests exist yet (tests.py files are empty)
+python manage.py test           # tests live in core/tests.py; other apps have none yet
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -56,7 +56,7 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 |---|---|---|
 | Product catalogue: list, detail, category, vendor, tag, search, filter | `core` | ? |
 | Cart (stored in the session) | `core` `add_to_cart` / `cart_view` | ? |
-| Checkout and payments: Stripe Checkout, PayPal buttons, coupons | `core` `checkout`, `create_checkout_session` | ? |
+| Checkout and payments: mock provider in development, Stripe Checkout/PayPal buttons otherwise, coupons | `core` `checkout`, `mock_payment`, `create_checkout_session` | ? |
 | Accounts: sign up/in with email, profile | `userauths` | ? |
 | Customer dashboard: orders, addresses | `core` `customer_dashboard` | ? |
 | Wishlist | `core` | ? |
@@ -71,8 +71,13 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   to `in_review`); the homepage shows only `featured` ones.
 - `.env` is git-ignored and required. `SECRET_KEY` has no default; `DEBUG` defaults to False. The
   old hard-coded secret key is public in git history: never use it in production.
-- Stripe/PayPal settings come from `.env` (`STRIPE_*`, `PAYPAL_RECEIVER_EMAIL`, `PAYPAL_TEST`).
-  Payments won't work until those are set.
+- Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
+  `DEBUG` off). Checkout then shows one "test payment" button; `core/payments.py` sends the
+  order's customer details and amount to a fake provider that always approves, the order is
+  marked paid (reference `mock_…` stored in `stripe_payment_intent`) and the cart is emptied.
+  The site never collects card details; a real provider must take them on its own hosted page.
+- With `PAYMENT_MOCK=False` the Stripe/PayPal buttons return; they need `STRIPE_*`,
+  `PAYPAL_RECEIVER_EMAIL` and `PAYPAL_TEST` in `.env`.
 - `ecomprj/apps.py` pins django-paypal's IPN app to `AutoField`. Without it, `makemigrations`
   tries to write a migration into the installed package.
 - `core/migrations/0010` was edited to use `models.TextField` instead of the retired
@@ -88,14 +93,16 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 - Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and
   orders are built from them.
-- `payment_completed_view` marks an order paid on visit without verifying the Stripe payment,
-  and doesn't check the order belongs to the user.
-- Missing ownership checks: `wishlist_view` lists every user's wishlist; `remove_wishlist`,
-  `make_address_default` (resets **all** users' addresses) and `checkout` act on any ID.
+- With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
+  verifying the Stripe payment.
+- `create_checkout_session` is `csrf_exempt` with no sign-in or ownership check, and resets
+  `paid_status` to False on whatever order ID it is given.
+- Missing ownership checks: `wishlist_view` lists every user's wishlist; `remove_wishlist` and
+  `make_address_default` (resets **all** users' addresses) act on any ID.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form);
   `change_order_status` is `csrf_exempt`.
 - Views crash for anonymous users instead of redirecting: `ajax_add_review`, `add_to_wishlist`,
-  `save_checkout_info`, `order_detail`. Many views use `.get()` without 404 handling.
+  `order_detail`. Many views use `.get()` without 404 handling.
 - `filter_product`: the `else` branches reset the queryset, so price and category filters are
   dropped unless both a category and a vendor are selected.
 - Login/sign-up redirect to an unvalidated `next` parameter.
@@ -107,4 +114,5 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
   and a dead Cloudflare `email-decode.min.js` reference.
-- Debug `print()` calls throughout the views. No automated tests.
+- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to
+  the server log. Most features have no tests.

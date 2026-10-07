@@ -1,5 +1,5 @@
 
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from requests import session
 import stripe
@@ -7,6 +7,7 @@ from taggit.models import Tag
 from core.models import Coupon, Product, Category, Vendor, CartOrder, CartOrderProducts, ProductImages, ProductReview, wishlist_model, Address
 from userauths.models import ContactUs, Profile
 from core.forms import ProductReviewForm
+from core.payments import pay_order
 from django.template.loader import render_to_string
 from django.contrib import messages
 
@@ -288,10 +289,11 @@ def update_cart(request):
     return JsonResponse({"data": context, 'totalcartitems': len(request.session['cart_data_obj'])})
 
 
+@login_required
 def save_checkout_info(request):
     cart_total_amount = 0
     total_amount = 0
-    if request.method == "POST":
+    if request.method == "POST" and request.session.get("cart_data_obj"):
         full_name = request.POST.get("full_name")
         email = request.POST.get("email")
         mobile = request.POST.get("mobile")
@@ -370,7 +372,7 @@ def save_checkout_info(request):
 
 
         return redirect("core:checkout", order.oid)
-    return redirect("core:checkout", order.oid)
+    return redirect("core:cart")
 
 
 
@@ -411,7 +413,7 @@ def create_checkout_session(request, oid):
 
 @login_required
 def checkout(request, oid):
-    order = CartOrder.objects.get(oid=oid)
+    order = get_object_or_404(CartOrder, oid=oid, user=request.user)
     order_items = CartOrderProducts.objects.filter(order=order)
 
    
@@ -442,16 +444,42 @@ def checkout(request, oid):
         "order": order,
         "order_items": order_items,
         "stripe_publishable_key": settings.STRIPE_PUBLIC_KEY,
+        "payment_mock": settings.PAYMENT_MOCK,
 
     }
     return render(request, "core/checkout.html", context)
 
 
 @login_required
+def mock_payment(request, oid):
+    if not settings.PAYMENT_MOCK:
+        raise Http404
+    order = get_object_or_404(CartOrder, oid=oid, user=request.user)
+
+    # GET happens after a sign-in redirect; send the user back to the pay button.
+    if request.method != "POST":
+        return redirect("core:checkout", order.oid)
+
+    if not order.paid_status:
+        payment = pay_order(order)
+        if payment["status"] != "succeeded":
+            return redirect("core:payment-failed")
+        order.paid_status = True
+        order.stripe_payment_intent = payment["id"]
+        order.save()
+        request.session.pop("cart_data_obj", None)
+
+    return redirect("core:payment-completed", order.oid)
+
+
+@login_required
 def payment_completed_view(request, oid):
-    order = CartOrder.objects.get(oid=oid)
-    
+    order = get_object_or_404(CartOrder, oid=oid, user=request.user)
+
     if order.paid_status == False:
+        # With mock payments only mock_payment marks orders paid.
+        if settings.PAYMENT_MOCK:
+            return redirect("core:checkout", order.oid)
         order.paid_status = True
         order.save()
         
