@@ -1,8 +1,16 @@
+import shutil
+import tempfile
+from io import StringIO
+from pathlib import Path
+
+from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from taggit.models import Tag
 
-from core.models import CartOrder, CartOrderProducts
+from core.models import CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
 from userauths.models import User
+
 
 CART = {
     "1": {"title": "Test Apple", "qty": "2", "price": "1.50", "image": "/media/apple.jpg", "pid": "abc123"},
@@ -92,3 +100,56 @@ class MockPaymentTests(TestCase):
     def test_mock_payment_is_off_when_disabled(self):
         self.assertEqual(self.client.post(self.pay_url).status_code, 404)
         self.assert_paid(False)
+
+
+class SeedTestDataTests(TestCase):
+    def setUp(self):
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_root)
+        settings_override = override_settings(MEDIA_ROOT=media_root)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+        self.media_dir = Path(media_root) / "test-data"
+
+    def seed(self, *args):
+        call_command("seed_test_data", *args, stdout=StringIO())
+
+    def test_seed_creates_published_products_that_render(self):
+        self.seed()
+
+        self.assertEqual(Product.objects.filter(pid__startswith="test-", product_status="published").count(), 12)
+        product = Product.objects.get(pid="test-01")
+        self.assertTrue((self.media_dir / Path(product.image.name).name).exists())
+        pages = {
+            reverse("core:index"): product.title,
+            reverse("core:product-list"): product.title,
+            reverse("core:product-detail", args=[product.pid]): product.title,
+            reverse("core:category-list"): product.category.title,
+            reverse("core:category-product-list", args=[product.category.cid]): product.title,
+            reverse("core:vendor-list"): product.vendor.title,
+            reverse("core:vendor-detail", args=[product.vendor.vid]): product.title,
+            reverse("core:tags", args=["snacks"]): product.title,
+        }
+        for url, text in pages.items():
+            self.assertContains(self.client.get(url), text, msg_prefix=url)
+
+    def test_seeding_twice_replaces_test_data(self):
+        self.seed()
+        self.seed()
+        self.assertEqual(Product.objects.count(), 12)
+
+    def test_delete_removes_only_test_data(self):
+        own_product = Product.objects.create(title="Real product")
+        own_product.tags.add("organic")
+        self.seed()
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        wishlist_model.objects.create(user=user, product=Product.objects.get(pid="test-01"))
+
+        self.seed("--delete")
+
+        self.assertQuerySetEqual(Product.objects.all(), [own_product])
+        self.assertFalse(Category.objects.exists())
+        self.assertFalse(Vendor.objects.exists())
+        self.assertFalse(wishlist_model.objects.exists())
+        self.assertEqual(list(Tag.objects.values_list("name", flat=True)), ["organic"])
+        self.assertFalse(self.media_dir.exists())

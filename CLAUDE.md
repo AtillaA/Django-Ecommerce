@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Django ecommerce storefront (multi-vendor grocery-style shop) built from a tutorial template
-(Desphixs / "Nest" HTML theme). The store currently has no data; content is added via the admin.
+(Desphixs / "Nest" HTML theme). The store has no real data yet; `seed_test_data` adds disposable
+test products, and real content is added via the admin.
 
 ## Standing instructions
 
@@ -26,6 +27,8 @@ cp .env.example .env            # required: settings read SECRET_KEY/DEBUG etc. 
 python manage.py migrate
 python manage.py runserver      # http://127.0.0.1:8000
 python manage.py createsuperuser   # prompts for email, username, password
+python manage.py seed_test_data            # test categories/vendors/products; re-running replaces them
+python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
@@ -69,6 +72,14 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 - Products only appear on the storefront when `product_status == "published"` (new ones default
   to `in_review`); the homepage shows only `featured` ones.
+- All data is disposable until launch. After model changes that clash with existing rows,
+  resetting is fine: `rm db.sqlite3 && python manage.py migrate && python manage.py seed_test_data`.
+- `seed_test_data` marks its rows by IDs (`pid`/`cid`/`vid`) starting with `test-`, which
+  generated IDs never do; `--delete` removes only those, plus their gallery images, reviews,
+  wishlist rows, unused tags and `media/test-data/`. Update its `PRODUCTS` list when the
+  Product model changes (`core/tests.py` fails if it breaks).
+- Deleting a product any other way (e.g. in the admin) leaves its wishlist rows with
+  `product=None`, which makes `/wishlist/` return 500. Delete those rows too.
 - `.env` is git-ignored and required. `SECRET_KEY` has no default; `DEBUG` defaults to False. The
   old hard-coded secret key is public in git history: never use it in production.
 - Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
@@ -106,11 +117,15 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 - `filter_product`: the `else` branches reset the queryset, so price and category filters are
   dropped unless both a category and a vendor are selected.
 - Login/sign-up redirect to an unvalidated `next` parameter.
+- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
+  templates show it as the discount ("-83% Off").
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
 - Leftover template content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
   `partials/base.html`), "Nestify" default vendor name, large static demo sections in
-  `core/index.html`, fallback avatars hotlinked from external sites.
+  `core/index.html` (including hardcoded "Milks & Dairies" labels on the homepage category
+  sidebar, ~line 3006, and demo tab names), hardcoded breadcrumb and "(32 reviews)" on
+  `core/product-detail.html`, fallback avatars hotlinked from external sites.
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
   and a dead Cloudflare `email-decode.min.js` reference.
