@@ -1,3 +1,4 @@
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from userauths.forms import UserRegisterForm, ProfileForm
 from django.contrib.auth import login, authenticate, logout
@@ -66,10 +67,11 @@ def login_view(request):
 def logout_view(request):
 
     logout(request)
-    messages.success(request, "You logged out.")
-    return redirect("userauths:sign-in")
+    messages.success(request, "Signed-out successfully")
+    return redirect("core:index")
 
 
+@login_required
 def profile_update(request):
     profile = Profile.objects.get(user=request.user)
     if request.method == "POST":

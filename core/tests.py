@@ -295,3 +295,25 @@ class PublishedOnlyTests(TestCase):
         self.assertContains(page, "Other Snack")
         self.assertNotContains(page, "Draft Snack")
         self.assertNotContains(page, "Review Snack")
+
+
+class SignedOutVisitorTests(TestCase):
+    def setUp(self):
+        self.product = Product.objects.create(title="Plain", product_status="published")
+        self.sign_in = reverse("userauths:sign-in")
+
+    def test_pages_redirect_to_sign_in(self):
+        for url in [reverse("core:order-detail", args=[1]), reverse("userauths:profile-update")]:
+            response = self.client.get(url)
+            self.assertRedirects(response, f"{self.sign_in}?next={url}", fetch_redirect_response=False, msg_prefix=url)
+
+    def test_ajax_actions_answer_401_with_the_sign_in_url(self):
+        for method, url, data in [
+            ("get", reverse("core:add-to-wishlist"), {"id": self.product.id}),
+            ("get", reverse("core:remove-from-wishlist"), {"id": 1}),
+            ("get", reverse("core:make-default-address"), {"id": 1}),
+            ("post", reverse("core:ajax-add-review", args=[self.product.id]), {"review": "x", "rating": 5}),
+        ]:
+            response = getattr(self.client, method)(url, data)
+            self.assertEqual(response.status_code, 401, url)
+            self.assertEqual(response.json(), {"sign_in_url": self.sign_in}, url)

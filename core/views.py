@@ -1,3 +1,4 @@
+from functools import wraps
 
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -21,6 +22,17 @@ import calendar
 from django.db.models import Count, Avg
 from django.db.models.functions import ExtractMonth
 from django.core import serializers
+
+def ajax_login_required(view):
+    """login_required for AJAX endpoints: answer 401 so function.js sends the visitor to sign in."""
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            messages.warning(request, "Please sign in to continue.")
+            return JsonResponse({"sign_in_url": reverse("userauths:sign-in")}, status=401)
+        return view(request, *args, **kwargs)
+    return wrapper
+
 
 def index(request):
     # bannanas = Product.objects.all().order_by("-id")
@@ -143,6 +155,7 @@ def tag_list(request, tag_slug=None):
     return render(request, "core/tag.html", context)
 
 
+@ajax_login_required
 def ajax_add_review(request, pid):
     product = Product.objects.get(pk=pid)
     user = request.user 
@@ -531,6 +544,7 @@ def customer_dashboard(request):
     }
     return render(request, 'core/dashboard.html', context)
 
+@login_required
 def order_detail(request, id):
     order = CartOrder.objects.get(user=request.user, id=id)
     order_items = CartOrderProducts.objects.filter(order=order)
@@ -542,6 +556,7 @@ def order_detail(request, id):
     return render(request, 'core/order-detail.html', context)
 
 
+@ajax_login_required
 def make_address_default(request):
     id = request.GET['id']
     Address.objects.update(status=False)
@@ -559,6 +574,7 @@ def wishlist_view(request):
 
     # w
 
+@ajax_login_required
 def add_to_wishlist(request):
     product_id = request.GET['id']
     product = Product.objects.get(id=product_id)
@@ -599,6 +615,7 @@ def add_to_wishlist(request):
 #     t = render_to_string("core/async/wishlist-list.html", context)
 #     return JsonResponse({"data": t, "w":wishlist})
 
+@ajax_login_required
 def remove_wishlist(request):
     pid = request.GET['id']
     wishlist = wishlist_model.objects.filter(user=request.user)

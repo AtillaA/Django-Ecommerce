@@ -63,6 +63,14 @@ $("#commentForm").submit(function (e) {
 
 
 $(document).ready(function () {
+    // Actions that need an account answer 401 for signed-out visitors: send them to sign in,
+    // then back to this page.
+    $(document).ajaxError(function (event, xhr) {
+        if (xhr.status === 401 && xhr.responseJSON && xhr.responseJSON.sign_in_url) {
+            window.location.href = xhr.responseJSON.sign_in_url + "?next=" + encodeURIComponent(window.location.pathname + window.location.search)
+        }
+    })
+
     $(".filter-checkbox, #price-filter-btn").on("click", function () {
         console.log("A checkbox have been clicked");
 

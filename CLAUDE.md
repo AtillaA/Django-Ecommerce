@@ -37,7 +37,7 @@ python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # tests live in core/tests.py; other apps have none yet
+python manage.py test           # tests live in core/tests.py and userauths/tests.py
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -121,8 +121,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Customers can't manage their account: the dashboard "Account details" form has no
   `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
   password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
-- Signed-out visitors get a 500 instead of a sign-in prompt: `ajax_add_review`,
-  `add_to_wishlist`, `order_detail`, `profile_update`.
 - Unknown products, categories, vendors and orders give a 500 instead of a 404: views use
   `.get()` (also `useradmin` `edit_product`, `delete_product`, `order_detail`).
 
@@ -201,7 +199,10 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 Confirmed in the October 2026 audit (browser and test client, with `seed_test_data`):
 
-- Sign-up and sign-in.
+- Sign-up and sign-in; sign-out shows "Signed-out successfully" on the home page.
+- Signed-out visitors are sent to sign in (and back) instead of getting errors: order and profile
+  pages redirect; wishlist, review and address actions answer 401 (`ajax_login_required`) and
+  `function.js` redirects.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
