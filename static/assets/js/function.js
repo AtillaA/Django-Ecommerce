@@ -134,7 +134,8 @@ $(document).ready(function () {
     })
 
     // Add to cart functionality
-    $(".add-to-cart-btn").on("click", function () {
+    // Delegated so buttons in lists redrawn by AJAX (e.g. the shop filter) work too
+    $(document).on("click", ".add-to-cart-btn", function () {
 
         let this_val = $(this)
         let index = this_val.attr("data-index")
