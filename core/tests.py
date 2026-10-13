@@ -268,3 +268,30 @@ class DefaultVendorTests(TestCase):
         Product.objects.filter(pk=product.pk).update(product_status="published")
         for url in [reverse("core:category-product-list", args=[category.cid]), reverse("core:search") + "?q=Muffin"]:
             self.assertContains(self.client.get(url), "Dashboard Muffin", msg_prefix=url)
+
+
+class PublishedOnlyTests(TestCase):
+    def setUp(self):
+        category = Category.objects.create(title="Snacks")
+        self.shown = Product.objects.create(title="Shown Snack", category=category, product_status="published")
+        Product.objects.create(title="Other Snack", category=category, product_status="published")
+        Product.objects.create(title="Draft Snack", category=category, product_status="draft")
+        Product.objects.create(title="Review Snack", category=category)  # in_review
+
+    def test_search_shows_only_published_products(self):
+        page = self.client.get(reverse("core:search"), {"q": "Snack"})
+        self.assertContains(page, "Shown Snack")
+        self.assertContains(page, "Other Snack")
+        self.assertNotContains(page, "Draft Snack")
+        self.assertNotContains(page, "Review Snack")
+
+    def test_search_without_a_term_lists_published_products(self):
+        page = self.client.get(reverse("core:search"))
+        self.assertContains(page, "Shown Snack")
+        self.assertNotContains(page, "Draft Snack")
+
+    def test_related_products_are_published_only(self):
+        page = self.client.get(reverse("core:product-detail", args=[self.shown.pid]))
+        self.assertContains(page, "Other Snack")
+        self.assertNotContains(page, "Draft Snack")
+        self.assertNotContains(page, "Review Snack")

@@ -118,8 +118,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- Search (`search_view`) and "related products" (`product_detail_view`) include unpublished
-  (draft/in-review) products; `/search/` without `q` crashes.
 - Customers can't manage their account: the dashboard "Account details" form has no
   `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
   password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
@@ -205,7 +203,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 
 - Sign-up and sign-in.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
-- Header search (with a search term).
+- Header search; results and "related products" show only published products (`/search/` without
+  a term lists them all).
 - Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
   search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
