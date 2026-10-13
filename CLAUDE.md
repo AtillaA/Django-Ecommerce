@@ -179,7 +179,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Mobile search doesn't search (`partials/base.html` ~line 393: `action="#"`, input has no
   `name`); the header search's category dropdown is demo data and ignored.
 - Newsletter "Subscribe" forms have no backend.
-- Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
 - The product page "Delivery" box labels the default address "Verified Address" and others
   "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
@@ -218,6 +217,9 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
   search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
+- Shop page "Sort by" (Featured, price up/down, release date, average rating) and "Show"
+  (50/100/150/200/All) with page links; the AJAX filter keeps the sort and lists all matches
+  unpaginated.
 - Add to cart from product lists (including filtered results) and the product page (quantity
   respected); adding an item already in the cart adds to its quantity; quantities below 1,
   empty or non-numeric are refused (browser and server) and the old value is restored; line

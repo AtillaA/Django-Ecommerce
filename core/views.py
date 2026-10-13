@@ -21,7 +21,8 @@ from django.views.decorators.http import require_POST
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
 
-from django.db.models import Avg
+from django.core.paginator import Paginator
+from django.db.models import Avg, F
 from django.core import serializers
 
 def ajax_login_required(view):
@@ -46,13 +47,57 @@ def index(request):
     return render(request, 'core/index.html', context)
 
 
+# Shop page "Sort by" options: key -> (label, ordering)
+PRODUCT_SORTS = {
+    "featured": ("Featured", ["-featured", "-id"]),
+    "price-asc": ("Price: Low to High", ["price", "-id"]),
+    "price-desc": ("Price: High to Low", ["-price", "-id"]),
+    "newest": ("Release Date", ["-date", "-id"]),
+    "rating": ("Avg. Rating", [F("avg_rating").desc(nulls_last=True), "-id"]),
+}
+# Shop page "Show" options: products per page
+PAGE_SIZES = ["50", "100", "150", "200", "all"]
+
+
+def sort_products(products, sort):
+    """Order products by a PRODUCT_SORTS key; unknown keys sort as Featured."""
+    if sort not in PRODUCT_SORTS:
+        sort = "featured"
+    if sort == "rating":
+        products = products.annotate(avg_rating=Avg("reviews__rating"))
+    return products.order_by(*PRODUCT_SORTS[sort][1])
+
+
 def product_list_view(request):
-    products = Product.objects.filter(product_status="published").order_by("-id")
+    sort = request.GET.get("sort") if request.GET.get("sort") in PRODUCT_SORTS else "featured"
+    show = request.GET.get("show") if request.GET.get("show") in PAGE_SIZES else PAGE_SIZES[0]
+    products = sort_products(Product.objects.filter(product_status="published"), sort)
+    per_page = max(products.count(), 1) if show == "all" else int(show)
+    page = Paginator(products, per_page).get_page(request.GET.get("page"))
     tags = Tag.objects.all().order_by("-id")[:6]
 
+    def url_with(**changes):
+        """This page's URL with some query parameters changed (back to page 1 unless page is given)."""
+        params = request.GET.copy()
+        params.pop("page", None)
+        for key, value in changes.items():
+            params[key] = value  # replaces; QueryDict.update() would append
+        return f"?{params.urlencode()}"
+
     context = {
-        "products":products,
-        "tags":tags,
+        "products": page,
+        "page": page,
+        "tags": tags,
+        "sort_label": PRODUCT_SORTS[sort][0],
+        "sort_options": [(label, url_with(sort=key), key == sort) for key, (label, _) in PRODUCT_SORTS.items()],
+        "show_label": show.title(),
+        "show_options": [(size.title(), url_with(show=size), size == show) for size in PAGE_SIZES],
+        "page_links": [
+            (number, None if number == page.paginator.ELLIPSIS else url_with(page=number), number == page.number)
+            for number in page.paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)
+        ],
+        "previous_url": url_with(page=page.previous_page_number()) if page.has_previous() else None,
+        "next_url": url_with(page=page.next_page_number()) if page.has_next() else None,
     }
 
     return render(request, 'core/product-list.html', context)
@@ -212,6 +257,8 @@ def filter_product(request):
     if vendors:
         products = products.filter(vendor__id__in=vendors)
 
+
+    products = sort_products(products, request.GET.get("sort"))
 
     data = render_to_string("core/async/product-list.html", {"products": products})
     return JsonResponse({"data": data})

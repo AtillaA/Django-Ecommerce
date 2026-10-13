@@ -11,7 +11,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from taggit.models import Tag
 
-from core.models import Address, CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
+from core.models import Address, CartOrder, CartOrderProducts, Category, Product, ProductReview, Vendor, wishlist_model
 from userauths.models import User
 
 
@@ -663,3 +663,47 @@ class DiscountTests(TestCase):
         self.client.get(reverse("core:add-to-cart"), {"id": on_sale.id, "qty": 2})
         page = self.client.get(reverse("core:cart"))
         self.assertEqual(page.context["cart_total_amount"], Decimal("19.98"))
+
+
+class ShopSortingTests(TestCase):
+    def setUp(self):
+        for title, price, featured in [("Cheap", "1.00", False), ("Pricey", "9.00", False), ("Middle", "5.00", True)]:
+            Product.objects.create(title=title, price=price, featured=featured, product_status="published")
+
+    def titles(self, **params):
+        return [p.title for p in self.client.get(reverse("core:product-list"), params).context["products"]]
+
+    def test_sort_options(self):
+        self.assertEqual(self.titles(), ["Middle", "Pricey", "Cheap"])  # featured first, then newest
+        self.assertEqual(self.titles(sort="price-asc"), ["Cheap", "Middle", "Pricey"])
+        self.assertEqual(self.titles(sort="price-desc"), ["Pricey", "Middle", "Cheap"])
+        self.assertEqual(self.titles(sort="newest"), ["Middle", "Pricey", "Cheap"])
+        self.assertEqual(self.titles(sort="nonsense"), self.titles())
+
+    def test_rating_sort_puts_unrated_last(self):
+        user = User.objects.create_user(username="r", email="r@example.com", password="pass-12345")
+        ProductReview.objects.create(user=user, product=Product.objects.get(title="Cheap"), review="ok", rating=5)
+        ProductReview.objects.create(user=user, product=Product.objects.get(title="Pricey"), review="meh", rating=2)
+        self.assertEqual(self.titles(sort="rating"), ["Cheap", "Pricey", "Middle"])
+
+    def test_show_and_pagination(self):
+        for n in range(60):
+            Product.objects.create(title=f"Bulk {n}", price="2.00", product_status="published")
+        page = self.client.get(reverse("core:product-list"))
+        self.assertEqual(len(page.context["products"]), 50)
+        self.assertContains(page, "We found <strong class=\"text-brand\">63</strong>")
+        self.assertContains(page, 'href="?page=2"')
+        second = self.client.get(reverse("core:product-list"), {"page": 2, "sort": "price-asc"})
+        self.assertEqual(len(second.context["products"]), 13)
+        self.assertEqual(len(self.client.get(reverse("core:product-list"), {"show": "all"}).context["products"]), 63)
+        self.assertNotContains(self.client.get(reverse("core:product-list"), {"show": "all"}), 'class="pagination-area')
+
+    def test_dropdown_links_keep_the_other_choice(self):
+        page = self.client.get(reverse("core:product-list"), {"sort": "price-desc", "show": "100"}).content.decode()
+        self.assertIn('href="?sort=price-asc&amp;show=100"', page)
+        self.assertIn('href="?sort=price-desc&amp;show=200"', page)
+
+    def test_filter_keeps_the_sort(self):
+        data = self.client.get(reverse("core:filter-product"), {"sort": "price-desc"}).json()["data"]
+        positions = [data.index(f">{title}</a>") for title in ["Pricey", "Middle", "Cheap"]]
+        self.assertEqual(positions, sorted(positions))

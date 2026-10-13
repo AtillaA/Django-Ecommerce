@@ -81,6 +81,7 @@ $(document).ready(function () {
 
         filter_object.min_price = min_price;
         filter_object.max_price = max_price;
+        filter_object.sort = new URLSearchParams(window.location.search).get("sort") || "";  // keep the chosen "Sort by"
 
         $(".filter-checkbox").each(function () {
             let filter_value = $(this).val()
@@ -105,6 +106,7 @@ $(document).ready(function () {
                 console.log(response.length);
                 console.log("Data filtred successfully...");
                 $(".totall-product").hide()
+                $(".pagination-area").hide()  // filtered results come as one list
                 $("#filtered-product").html(response.data)
             }
         })

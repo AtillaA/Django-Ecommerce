@@ -116,7 +116,7 @@
                 <div class="col-12">
                     <div class="shop-product-fillter">
                         <div class="totall-product">
-                            <p>We found <strong class="text-brand">{{products.count}}</strong> items for you!</p>
+                            <p>We found <strong class="text-brand">{{ page.paginator.count }}</strong> items for you!</p>
                         </div>
                         <div class="sort-by-product-area">
                             <div class="sort-by-cover mr-10">
@@ -125,16 +125,14 @@
                                         <span><i class="fi-rs-apps"></i>Show:</span>
                                     </div>
                                     <div class="sort-by-dropdown-wrap">
-                                        <span> 50 <i class="fi-rs-angle-small-down"></i></span>
+                                        <span> {{ show_label }} <i class="fi-rs-angle-small-down"></i></span>
                                     </div>
                                 </div>
                                 <div class="sort-by-dropdown">
                                     <ul>
-                                        <li><a class="active" href="#">50</a></li>
-                                        <li><a href="#">100</a></li>
-                                        <li><a href="#">150</a></li>
-                                        <li><a href="#">200</a></li>
-                                        <li><a href="#">All</a></li>
+                                        {% for label, url, active in show_options %}
+                                        <li><a {% if active %}class="active" {% endif %}href="{{ url }}">{{ label }}</a></li>
+                                        {% endfor %}
                                     </ul>
                                 </div>
                             </div>
@@ -144,16 +142,14 @@
                                         <span><i class="fi-rs-apps-sort"></i>Sort by:</span>
                                     </div>
                                     <div class="sort-by-dropdown-wrap">
-                                        <span> Featured <i class="fi-rs-angle-small-down"></i></span>
+                                        <span> {{ sort_label }} <i class="fi-rs-angle-small-down"></i></span>
                                     </div>
                                 </div>
                                 <div class="sort-by-dropdown">
                                     <ul>
-                                        <li><a class="active" href="#">Featured</a></li>
-                                        <li><a href="#">Price: Low to High</a></li>
-                                        <li><a href="#">Price: High to Low</a></li>
-                                        <li><a href="#">Release Date</a></li>
-                                        <li><a href="#">Avg. Rating</a></li>
+                                        {% for label, url, active in sort_options %}
+                                        <li><a {% if active %}class="active" {% endif %}href="{{ url }}">{{ label }}</a></li>
+                                        {% endfor %}
                                     </ul>
                                 </div>
                             </div>
@@ -223,23 +219,27 @@
                         
                     </div>
                     <!--product grid-->
-                    <!-- <div class="pagination-area mt-20 mb-20">
-                        <nav aria-label="Page navigation example">
+                    {% if page.has_other_pages %}
+                    <div class="pagination-area mt-20 mb-20">
+                        <nav aria-label="Shop pages">
                             <ul class="pagination justify-content-start">
-                                <li class="page-item">
-                                    <a class="page-link" href="#"><i class="fi-rs-arrow-small-left"></i></a>
-                                </li>
-                                <li class="page-item"><a class="page-link" href="#">1</a></li>
-                                <li class="page-item active"><a class="page-link" href="#">2</a></li>
-                                <li class="page-item"><a class="page-link" href="#">3</a></li>
-                                <li class="page-item"><a class="page-link dot" href="#">...</a></li>
-                                <li class="page-item"><a class="page-link" href="#">6</a></li>
-                                <li class="page-item">
-                                    <a class="page-link" href="#"><i class="fi-rs-arrow-small-right"></i></a>
-                                </li>
+                                {% if previous_url %}
+                                <li class="page-item"><a class="page-link" href="{{ previous_url }}"><i class="fi-rs-arrow-small-left"></i></a></li>
+                                {% endif %}
+                                {% for number, url, current in page_links %}
+                                {% if url %}
+                                <li class="page-item{% if current %} active{% endif %}"><a class="page-link" href="{{ url }}">{{ number }}</a></li>
+                                {% else %}
+                                <li class="page-item"><span class="page-link dot">{{ number }}</span></li>
+                                {% endif %}
+                                {% endfor %}
+                                {% if next_url %}
+                                <li class="page-item"><a class="page-link" href="{{ next_url }}"><i class="fi-rs-arrow-small-right"></i></a></li>
+                                {% endif %}
                             </ul>
                         </nav>
-                    </div> -->
+                    </div>
+                    {% endif %}
                     <section class="section-padding pb-5">
                         <div class="section-title">
                             <h3 class="">Deals Of The Day</h3>
