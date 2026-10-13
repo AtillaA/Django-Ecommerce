@@ -396,3 +396,15 @@ class NotFoundTests(TestCase):
             "/useradmin/order_detail/abc/",
         ]:
             self.assertEqual(self.client.get(url).status_code, 404, url)
+
+
+class CustomerDashboardTests(TestCase):
+    def test_has_no_orders_chart(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(user)
+        page = self.client.get(reverse("core:dashboard"))
+        self.assertEqual(page.status_code, 200)
+        for gone in ["myChart", 'id="dashboard-tab"', "chart.js"]:
+            self.assertNotContains(page, gone)
+        for tab in ["profile-tab", "orders-tab", "address-tab", "account-detail-tab"]:
+            self.assertContains(page, f'id="{tab}"')

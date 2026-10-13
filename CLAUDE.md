@@ -66,7 +66,7 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 | Cart (stored in the session) | `core` `add_to_cart` / `cart_view` | ? |
 | Checkout and payments: mock provider in development, Stripe Checkout/PayPal buttons otherwise, coupons | `core` `checkout`, `mock_payment`, `create_checkout_session` | ? |
 | Accounts: sign up/in with email, profile | `userauths` | ? |
-| Customer dashboard: orders, addresses | `core` `customer_dashboard` | ? |
+| Customer dashboard: profile, orders, addresses, password (the template's orders chart was removed; the user plans their own) | `core` `customer_dashboard` | ? |
 | Wishlist | `core` | ? |
 | Reviews and ratings | `core` `ajax_add_review` | ? |
 | Store dashboard for superusers | `useradmin` | ? |
@@ -136,7 +136,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- The customer dashboard's orders chart counts all users' orders (`customer_dashboard`).
 - The product page "Delivery" box never shows the user's address: `product_detail_view` passes
   `address = "Login To Continue"`, overriding the context processor (which also returns `None`
   for users with 2+ addresses).

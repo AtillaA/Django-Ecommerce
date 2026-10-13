@@ -18,9 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
 
-import calendar
-from django.db.models import Count, Avg
-from django.db.models.functions import ExtractMonth
+from django.db.models import Avg
 from django.core import serializers
 
 def ajax_login_required(view):
@@ -508,14 +506,6 @@ def customer_dashboard(request):
     address = Address.objects.filter(user=request.user)
 
 
-    orders = CartOrder.objects.annotate(month=ExtractMonth("order_date")).values("month").annotate(count=Count("id")).values("month", "count")
-    month = []
-    total_orders = []
-
-    for i in orders:
-        month.append(calendar.month_name[i["month"]])
-        total_orders.append(i["count"])
-
     if request.method == "POST":
         address = request.POST.get("address")
         mobile = request.POST.get("mobile")
@@ -535,11 +525,8 @@ def customer_dashboard(request):
 
     context = {
         "user_profile": user_profile,
-        "orders": orders,
         "orders_list": orders_list,
         "address": address,
-        "month": month,
-        "total_orders": total_orders,
     }
     return render(request, 'core/dashboard.html', context)
 
