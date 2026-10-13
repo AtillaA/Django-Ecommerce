@@ -196,8 +196,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
-- Store-dashboard "Change Password" inputs are `type="text"` (passwords show while typing), and
-  it doesn't apply the password rules customers get (`PasswordChangeForm`).
 - Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
   server log. Most features have no tests.
 
@@ -233,7 +231,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Password change in the dashboard's "Account details" tab: current password, new password
   twice (Django's password rules); errors reopen the tab; success says "Password changed
   successfully", keeps the user signed in and shows the Profile tab. The store dashboard's
-  password page also keeps the admin signed in and goes to "Profile setting".
+  password page works the same way (same form and rules, hidden inputs) and goes to "Profile
+  setting".
 - Adding addresses and setting a default (only your own addresses change); the product page
   "Delivery" box shows the default address (else the newest), or a sign-in/no-address prompt.
 - Order history and order detail in the customer dashboard.
