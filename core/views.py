@@ -14,7 +14,7 @@ from django.contrib import messages
 
 from django.urls import reverse
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
 
@@ -377,9 +377,12 @@ def save_checkout_info(request):
 
 
 
-@csrf_exempt
+@require_POST
+@ajax_login_required
 def create_checkout_session(request, oid):
-    order = CartOrder.objects.get(oid=oid)
+    order = get_object_or_404(CartOrder, oid=oid, user=request.user)
+    if order.paid_status:
+        return JsonResponse({"error": "This order is already paid."}, status=400)
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     checkout_session = stripe.checkout.Session.create(
@@ -402,7 +405,6 @@ def create_checkout_session(request, oid):
         cancel_url = request.build_absolute_uri(reverse("core:payment-completed", args=[order.oid]))
     )
 
-    order.paid_status = False
     order.stripe_payment_intent = checkout_session['id']
     order.save()
 

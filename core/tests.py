@@ -1,4 +1,5 @@
 import shutil
+from unittest import mock
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -441,3 +442,51 @@ class DeliveryAddressTests(TestCase):
         Address.objects.create(user=other, address="Not Mine", status=True)
         self.client.force_login(self.user)
         self.assertNotContains(self.client.get(self.url), "Not Mine")
+
+
+@override_settings(PAYMENT_MOCK=False)
+class StripeCheckoutSessionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.order = CartOrder.objects.create(user=self.user, price="12.50", email="buyer@example.com")
+        self.url = reverse("core:api_checkout_session", args=[self.order.oid])
+        self.client.force_login(self.user)
+        session = mock.MagicMock(id="cs_test_123")  # Stripe's object supports both session.id and session["id"]
+        session.__getitem__.return_value = "cs_test_123"
+        patcher = mock.patch("core.views.stripe.checkout.Session.create", return_value=session)
+        self.create_session = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_own_order_gets_a_session_without_touching_paid_status(self):
+        response = self.client.post(self.url)
+        self.assertEqual(response.json(), {"sessionId": "cs_test_123"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stripe_payment_intent, "cs_test_123")
+        self.assertFalse(self.order.paid_status)
+
+    def test_paid_order_is_not_reset_or_sent_again(self):
+        CartOrder.objects.filter(pk=self.order.pk).update(paid_status=True)
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 400)
+        self.create_session.assert_not_called()
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.paid_status)
+
+    def test_other_users_order_is_not_found(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        self.client.force_login(other)
+        self.assertEqual(self.client.post(self.url).status_code, 404)
+        self.create_session.assert_not_called()
+
+    def test_checkout_page_sends_the_csrf_token(self):
+        page = self.client.get(reverse("core:checkout", args=[self.order.oid])).content.decode()
+        self.assertRegex(page, r'"X-CSRFToken": "[A-Za-z0-9]{32,}"')
+
+    def test_requires_sign_in_post_and_csrf(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.post(self.url).status_code, 401)
+        self.create_session.assert_not_called()

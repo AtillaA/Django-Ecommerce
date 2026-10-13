@@ -190,8 +190,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   are built from them. Must be fixed before taking real orders.
 - With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
   verifying the Stripe payment.
-- `create_checkout_session` is `csrf_exempt` with no sign-in or ownership check, and resets
-  `paid_status` to False on whatever order ID it is given.
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
@@ -238,4 +236,6 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
   and so does another user's order.
-- Checkout with the mock payment (`core/tests.py` covers it).
+- Checkout with the mock payment (`core/tests.py` covers it). With `PAYMENT_MOCK=False`,
+  `create_checkout_session` (Stripe) needs POST, sign-in, CSRF and the user's own unpaid order,
+  and never resets `paid_status` (tested with Stripe mocked; no real Stripe run yet).
