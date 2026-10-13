@@ -37,7 +37,7 @@ python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # tests live in core/tests.py; other apps have none yet
+python manage.py test           # tests live in core/tests.py and userauths/tests.py
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -66,7 +66,7 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 | Cart (stored in the session) | `core` `add_to_cart` / `cart_view` | ? |
 | Checkout and payments: mock provider in development, Stripe Checkout/PayPal buttons otherwise, coupons | `core` `checkout`, `mock_payment`, `create_checkout_session` | ? |
 | Accounts: sign up/in with email, profile | `userauths` | ? |
-| Customer dashboard: orders, addresses | `core` `customer_dashboard` | ? |
+| Customer dashboard: profile, orders, addresses, password (the template's orders chart was removed; the user plans their own) | `core` `customer_dashboard` | ? |
 | Wishlist | `core` | ? |
 | Reviews and ratings | `core` `ajax_add_review` | ? |
 | Store dashboard for superusers | `useradmin` | ? |
@@ -75,6 +75,10 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 ## Gotchas
 
+- User data (orders, addresses, wishlist, reviews, profile) must be read and changed only through
+  `request.user`: filter querysets by it and fetch single rows with
+  `get_object_or_404(Model, id=..., user=request.user)`. The template ignored this everywhere;
+  `core/tests.py` `UserIsolationTests` covers the fixed views.
 - Products only appear on the storefront when `product_status == "published"` (new ones default
   to `in_review`); the homepage shows only `featured` ones.
 - All data is disposable until launch. After model changes that clash with existing rows,
@@ -118,13 +122,9 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- Customers can't manage their account: the dashboard "Account details" form has no
-  `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
-  password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
-- Signed-out visitors get a 500 instead of a sign-in prompt: `ajax_add_review`,
-  `add_to_wishlist`, `order_detail`, `profile_update`.
-- Unknown products, categories, vendors and orders give a 500 instead of a 404: views use
-  `.get()` (also `useradmin` `edit_product`, `delete_product`, `order_detail`).
+- "Forgot password?" on the sign-in page is `href="#"`: there is no password reset flow (it needs
+  an email backend). The dashboard's "Track your order" form posts to `#` (its tab link is
+  commented out, so customers can't reach it).
 
 #### Store dashboard
 
@@ -133,19 +133,9 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
   is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
 - "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
-- Changing the password logs the user out (no `update_session_auth_hash`) and lands on sign-in
-  with "not authorized".
 
 ### Major
 
-- Wishlist page lists every user's items (`wishlist_model.objects.all()`), and the header
-  wishlist count doesn't update until a reload.
-- Making an address default clears every other user's default (`make_address_default` updates
-  all `Address` rows).
-- The customer dashboard's orders chart counts all users' orders (`customer_dashboard`).
-- The product page "Delivery" box never shows the user's address: `product_detail_view` passes
-  `address = "Login To Continue"`, overriding the context processor (which also returns `None`
-  for users with 2+ addresses).
 - Cart quantities aren't validated: negative values give negative totals; an empty value makes
   `/update-cart/` fail (500) and hides the refresh button; adding an item already in the cart
   replaces its quantity instead of adding to it.
@@ -153,17 +143,33 @@ Found in the template and confirmed against the running app (October 2026 audit,
   (`in_stock`/`stock_count` unused in views).
 - `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
   templates show it as the discount ("-83% Off").
-- A wrong password says "User Does Not Exist, create an account." (`login_view`).
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
   order confirmations.
 
 ### Minor
 
-- 98 links in `partials/base.html` go to `#`, including every "Mega menu" entry; "Deals" just
-  opens the full shop.
-- Links to 12 theme demo pages (`index.html`, `shop-compare.html`, `shop-product-right.html`,
-  `shop-grid-right.html`, `shop-cart.html`, `page-register.html`, `vendor-details-1/2.html`, ...)
-  appear on up to 36 pages and all 404.
+- Dead-end routes, labelled for the dead-ends pass. Theme links are relative, so they 404 under
+  whatever page they sit on (e.g. `/product/test-01/shop-compare.html`). Counts skip commented-out
+  markup and the store dashboard (October 2026):
+
+  | Dead link | Links | Where / what | Likely fix |
+  |---|---|---|---|
+  | `shop-product-right.html` | 191 | Demo product cards in `core/index.html` (152); sidebar demo products on vendor, shop, search, tag pages | Remove with the demo blocks |
+  | `shop-grid-right.html` | 117 | Category labels on product cards (incl. `async/product-list.html`); sidebars of info pages and the product page | `core:category-product-list` / `core:product-list` |
+  | `vendor-details-1.html` | 81 | "By (vendor)" on demo product cards | Remove with the demo blocks |
+  | `vendor-details-2.html` | 2 | Vendor name on the product page | `core:vendor-detail` |
+  | `shop-cart.html` | 81 | "Add" on demo product cards | Remove with the demo blocks |
+  | `shop-compare.html` | 62 | "Compare" icons | Remove (no compare feature) or build one |
+  | `shop-wishlist.html` | 61 | "Add To Wishlist" icons on demo cards | Remove with the demo blocks |
+  | `shop-product-detail.html` | 15 | Demo products in info-page and product-page sidebars | Remove |
+  | `index.html` | 20 | Breadcrumb "Home" on 20 pages | `core:index` |
+  | `page-login.html` | 3 | "Logout" in the dashboard and profile-edit menus; "Log in instead!" on order detail | `userauths:sign-out` / remove |
+  | `page-register.html` | 1 | "Register now" on the product page | `userauths:sign-up` |
+  | `page-contact.html` | 1 | "contact us" on the terms page | `core:contact` |
+  | `/cdn-cgi/l/email-protection` | 1 | Footer email, shows "[email protected]" (Cloudflare leftover) | Real `mailto:` |
+  | `#` | 225 | 97 in `partials/base.html`: every "Mega menu" entry, language/currency switchers, footer columns (Delivery Information, Support Center, Careers, ...), social icons; the rest are placeholders in page templates (vendor/about demo links, pagination) | Link real pages or remove |
+
+  "Deals" in the main menu opens the full shop (no deals page).
 - Most of `core/index.html` is fixed demo content: only the first "Popular Products" tab and
   "Shop by Categories" use real data. "Deals Of The Day", "Top Selling", "Trending Products",
   "Recently added", "Top Rated" and the other tabs are demo products whose 60 "Add" buttons link
@@ -174,7 +180,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `name`); the header search's category dropdown is demo data and ignored.
 - Newsletter "Subscribe" forms have no backend.
 - Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
-- Footer email shows "[email protected]" and links to a dead `/cdn-cgi/l/email-protection`.
+- The product page "Delivery" box labels the default address "Verified Address" and others
+  "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
   `partials/base.html`), "Nestify" default vendor name, hardcoded breadcrumb and "(32 reviews)"
   on `core/product-detail.html`, fallback avatars hotlinked from external sites.
@@ -190,10 +197,10 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `paid_status` to False on whatever order ID it is given.
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
-- `remove_wishlist` deletes any wishlist row by ID (no ownership check).
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
-- Login/sign-up redirect to an unvalidated `next` parameter.
+- Store-dashboard "Change Password" inputs are `type="text"` (passwords show while typing), and
+  it doesn't apply the password rules customers get (`PasswordChangeForm`).
 - Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
   server log. Most features have no tests.
 
@@ -201,7 +208,11 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 Confirmed in the October 2026 audit (browser and test client, with `seed_test_data`):
 
-- Sign-up and sign-in.
+- Sign-up and sign-in (a wrong password says "Wrong password"; `?next=` is followed only within
+  this site); sign-out shows "Signed-out successfully" on the home page.
+- Signed-out visitors are sent to sign in (and back) instead of getting errors: order and profile
+  pages redirect; wishlist, review and address actions answer 401 (`ajax_login_required`) and
+  `function.js` redirects.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
@@ -212,9 +223,19 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   respected).
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
-- Wishlist add and remove.
+- Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
+  else's item by ID gives 404.
 - Reviews when signed in.
 - Contact form (message saved).
-- Adding addresses and setting a default.
+- Profile edit (`/user/profile/update/`: name, bio, phone, image) updates the signed-in user's
+  profile only.
+- Password change in the dashboard's "Account details" tab: current password, new password
+  twice (Django's password rules); errors reopen the tab; success says "Password changed
+  successfully", keeps the user signed in and shows the Profile tab. The store dashboard's
+  password page also keeps the admin signed in and goes to "Profile setting".
+- Adding addresses and setting a default (only your own addresses change); the product page
+  "Delivery" box shows the default address (else the newest), or a sign-in/no-address prompt.
 - Order history and order detail in the customer dashboard.
+- Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
+  and so does another user's order.
 - Checkout with the mock payment (`core/tests.py` covers it).

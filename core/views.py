@@ -1,3 +1,4 @@
+from functools import wraps
 
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render, get_object_or_404
@@ -17,10 +18,19 @@ from django.views.decorators.csrf import csrf_exempt
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
 
-import calendar
-from django.db.models import Count, Avg
-from django.db.models.functions import ExtractMonth
+from django.db.models import Avg
 from django.core import serializers
+
+def ajax_login_required(view):
+    """login_required for AJAX endpoints: answer 401 so function.js sends the visitor to sign in."""
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            messages.warning(request, "Please sign in to continue.")
+            return JsonResponse({"sign_in_url": reverse("userauths:sign-in")}, status=401)
+        return view(request, *args, **kwargs)
+    return wrapper
+
 
 def index(request):
     # bannanas = Product.objects.all().order_by("-id")
@@ -56,7 +66,7 @@ def category_list_view(request):
 
 def category_product_list__view(request, cid):
 
-    category = Category.objects.get(cid=cid) # food, Cosmetics
+    category = get_object_or_404(Category, cid=cid)
     products = Product.objects.filter(product_status="published", category=category)
 
     context = {
@@ -75,7 +85,7 @@ def vendor_list_view(request):
 
 
 def vendor_detail_view(request, vid):
-    vendor = Vendor.objects.get(vid=vid)
+    vendor = get_object_or_404(Vendor, vid=vid)
     products = Product.objects.filter(vendor=vendor, product_status="published").order_by("-id")
 
     context = {
@@ -86,8 +96,7 @@ def vendor_detail_view(request, vid):
 
 
 def product_detail_view(request, pid):
-    product = Product.objects.get(pid=pid)
-    # product = get_object_or_404(Product, pid=pid)
+    product = get_object_or_404(Product, pid=pid)
     products = Product.objects.filter(category=product.category, product_status="published").exclude(pid=pid)
 
     # Getting all reviews related to a product
@@ -108,14 +117,10 @@ def product_detail_view(request, pid):
         if user_review_count > 0:
             make_review = False
     
-    address = "Login To Continue"
-
-
     p_image = product.p_images.all()
 
     context = {
         "p": product,
-        "address": address,
         "make_review": make_review,
         "review_form": review_form,
         "p_image": p_image,
@@ -143,8 +148,9 @@ def tag_list(request, tag_slug=None):
     return render(request, "core/tag.html", context)
 
 
+@ajax_login_required
 def ajax_add_review(request, pid):
-    product = Product.objects.get(pk=pid)
+    product = get_object_or_404(Product, pk=pid)
     user = request.user 
 
     review = ProductReview.objects.create(
@@ -496,14 +502,6 @@ def customer_dashboard(request):
     address = Address.objects.filter(user=request.user)
 
 
-    orders = CartOrder.objects.annotate(month=ExtractMonth("order_date")).values("month").annotate(count=Count("id")).values("month", "count")
-    month = []
-    total_orders = []
-
-    for i in orders:
-        month.append(calendar.month_name[i["month"]])
-        total_orders.append(i["count"])
-
     if request.method == "POST":
         address = request.POST.get("address")
         mobile = request.POST.get("mobile")
@@ -523,16 +521,14 @@ def customer_dashboard(request):
 
     context = {
         "user_profile": user_profile,
-        "orders": orders,
         "orders_list": orders_list,
         "address": address,
-        "month": month,
-        "total_orders": total_orders,
     }
     return render(request, 'core/dashboard.html', context)
 
+@login_required
 def order_detail(request, id):
-    order = CartOrder.objects.get(user=request.user, id=id)
+    order = get_object_or_404(CartOrder, user=request.user, id=id)
     order_items = CartOrderProducts.objects.filter(order=order)
 
     
@@ -542,15 +538,16 @@ def order_detail(request, id):
     return render(request, 'core/order-detail.html', context)
 
 
+@ajax_login_required
 def make_address_default(request):
-    id = request.GET['id']
-    Address.objects.update(status=False)
-    Address.objects.filter(id=id).update(status=True)
+    address = get_object_or_404(Address, id=request.GET['id'], user=request.user)
+    Address.objects.filter(user=request.user).update(status=False)
+    Address.objects.filter(id=address.id).update(status=True)
     return JsonResponse({"boolean": True})
 
 @login_required
 def wishlist_view(request):
-    wishlist = wishlist_model.objects.all()
+    wishlist = wishlist_model.objects.filter(user=request.user)
     context = {
         "w":wishlist
     }
@@ -559,9 +556,10 @@ def wishlist_view(request):
 
     # w
 
+@ajax_login_required
 def add_to_wishlist(request):
     product_id = request.GET['id']
-    product = Product.objects.get(id=product_id)
+    product = get_object_or_404(Product, id=product_id)
     print("product id isssssssssssss:" + product_id)
 
     context = {}
@@ -582,6 +580,7 @@ def add_to_wishlist(request):
             "bool": True
         }
 
+    context["wishlist_count"] = wishlist_model.objects.filter(user=request.user).count()
     return JsonResponse(context)
 
 
@@ -599,10 +598,11 @@ def add_to_wishlist(request):
 #     t = render_to_string("core/async/wishlist-list.html", context)
 #     return JsonResponse({"data": t, "w":wishlist})
 
+@ajax_login_required
 def remove_wishlist(request):
     pid = request.GET['id']
     wishlist = wishlist_model.objects.filter(user=request.user)
-    wishlist_d = wishlist_model.objects.get(id=pid)
+    wishlist_d = get_object_or_404(wishlist_model, id=pid, user=request.user)
     delete_product = wishlist_d.delete()
     
     context = {
@@ -611,7 +611,7 @@ def remove_wishlist(request):
     }
     wishlist_json = serializers.serialize('json', wishlist)
     t = render_to_string('core/async/wishlist-list.html', context)
-    return JsonResponse({'data':t,'w':wishlist_json})
+    return JsonResponse({'data':t,'w':wishlist_json, 'wishlist_count': wishlist.count()})
 
 
 

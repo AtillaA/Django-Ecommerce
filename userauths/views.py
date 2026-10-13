@@ -1,12 +1,24 @@
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from userauths.forms import UserRegisterForm, ProfileForm
-from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth import login, authenticate, logout, update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.contrib import messages
 from django.conf import settings
 from userauths.models import Profile, User
 
 
 # User = settings.AUTH_USER_MODEL
+
+def next_url(request):
+    """The ?next= page to go to after signing in or up, if it is on this site; else the home page."""
+    url = request.GET.get("next")
+    if url and url_has_allowed_host_and_scheme(url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return url
+    return reverse("core:index")
+
 
 def register_view(request):
     
@@ -21,8 +33,7 @@ def register_view(request):
             )
             login(request, new_user)
 
-            next_url = request.GET.get("next", 'core:index')
-            return redirect(next_url)
+            return redirect(next_url(request))
     else:
         form = UserRegisterForm()
 
@@ -49,10 +60,9 @@ def login_view(request):
             if user is not None:
                 login(request, user)
                 messages.success(request, "You are logged in.")
-                next_url = request.GET.get("next", 'core:index')
-                return redirect(next_url)
+                return redirect(next_url(request))
             else:
-                messages.warning(request, "User Does Not Exist, create an account.")
+                messages.warning(request, "Wrong password")
     
         except:
             messages.warning(request, f"User with {email} does not exist")
@@ -66,10 +76,11 @@ def login_view(request):
 def logout_view(request):
 
     logout(request)
-    messages.success(request, "You logged out.")
-    return redirect("userauths:sign-in")
+    messages.success(request, "Signed-out successfully")
+    return redirect("core:index")
 
 
+@login_required
 def profile_update(request):
     profile = Profile.objects.get(user=request.user)
     if request.method == "POST":
@@ -89,3 +100,18 @@ def profile_update(request):
     }
 
     return render(request, "userauths/profile-edit.html", context)
+
+
+@login_required
+def change_password(request):
+    """Account details tab of the customer dashboard: current password, then the new one twice."""
+    if request.method == "POST":
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            update_session_auth_hash(request, form.save())  # keep the user signed in
+            messages.success(request, "Password changed successfully")
+            return redirect("core:dashboard")
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+    return redirect(reverse("core:dashboard") + "#account-detail")

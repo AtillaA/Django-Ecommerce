@@ -9,7 +9,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from taggit.models import Tag
 
-from core.models import CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
+from core.models import Address, CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
 from userauths.models import User
 
 
@@ -295,3 +295,149 @@ class PublishedOnlyTests(TestCase):
         self.assertContains(page, "Other Snack")
         self.assertNotContains(page, "Draft Snack")
         self.assertNotContains(page, "Review Snack")
+
+
+class SignedOutVisitorTests(TestCase):
+    def setUp(self):
+        self.product = Product.objects.create(title="Plain", product_status="published")
+        self.sign_in = reverse("userauths:sign-in")
+
+    def test_pages_redirect_to_sign_in(self):
+        for url in [reverse("core:order-detail", args=[1]), reverse("userauths:profile-update")]:
+            response = self.client.get(url)
+            self.assertRedirects(response, f"{self.sign_in}?next={url}", fetch_redirect_response=False, msg_prefix=url)
+
+    def test_ajax_actions_answer_401_with_the_sign_in_url(self):
+        for method, url, data in [
+            ("get", reverse("core:add-to-wishlist"), {"id": self.product.id}),
+            ("get", reverse("core:remove-from-wishlist"), {"id": 1}),
+            ("get", reverse("core:make-default-address"), {"id": 1}),
+            ("post", reverse("core:ajax-add-review", args=[self.product.id]), {"review": "x", "rating": 5}),
+        ]:
+            response = getattr(self.client, method)(url, data)
+            self.assertEqual(response.status_code, 401, url)
+            self.assertEqual(response.json(), {"sign_in_url": self.sign_in}, url)
+
+
+class UserIsolationTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="alice@example.com", password="pass-12345")
+        self.bob = User.objects.create_user(username="bob", email="bob@example.com", password="pass-12345")
+        self.apple = Product.objects.create(title="Alice Apple", product_status="published")
+        self.berry = Product.objects.create(title="Bob Berry", product_status="published")
+        self.alice_wish = wishlist_model.objects.create(user=self.alice, product=self.apple)
+        self.bob_wish = wishlist_model.objects.create(user=self.bob, product=self.berry)
+        self.client.force_login(self.alice)
+
+    def test_wishlist_page_lists_only_own_items(self):
+        page = self.client.get(reverse("core:wishlist"))
+        self.assertContains(page, "Alice Apple")
+        self.assertNotContains(page, "Bob Berry")
+
+    def test_cannot_remove_another_users_wishlist_item(self):
+        response = self.client.get(reverse("core:remove-from-wishlist"), {"id": self.bob_wish.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(wishlist_model.objects.filter(id=self.bob_wish.id).exists())
+
+    def test_removing_own_wishlist_item(self):
+        response = self.client.get(reverse("core:remove-from-wishlist"), {"id": self.alice_wish.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["wishlist_count"], 0)
+        self.assertFalse(wishlist_model.objects.filter(id=self.alice_wish.id).exists())
+
+    def test_adding_returns_the_users_new_wishlist_count(self):
+        response = self.client.get(reverse("core:add-to-wishlist"), {"id": self.berry.id})
+        self.assertEqual(response.json()["wishlist_count"], 2)
+        response = self.client.get(reverse("core:add-to-wishlist"), {"id": self.berry.id})
+        self.assertEqual(response.json()["wishlist_count"], 2)
+
+    def test_default_address_only_changes_own_addresses(self):
+        bob_home = Address.objects.create(user=self.bob, address="Bob home", status=True)
+        alice_home = Address.objects.create(user=self.alice, address="Alice home", status=True)
+        alice_work = Address.objects.create(user=self.alice, address="Alice work")
+
+        self.client.get(reverse("core:make-default-address"), {"id": alice_work.id})
+        statuses = dict(Address.objects.values_list("address", "status"))
+        self.assertEqual(statuses, {"Bob home": True, "Alice home": False, "Alice work": True})
+
+        response = self.client.get(reverse("core:make-default-address"), {"id": bob_home.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(Address.objects.get(id=alice_work.id).status)
+        alice_home.refresh_from_db()
+        self.assertFalse(alice_home.status)
+
+
+class NotFoundTests(TestCase):
+    def test_unknown_storefront_objects_give_404(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        others_order = CartOrder.objects.create(user=other)
+        self.client.force_login(user)
+        for url in [
+            reverse("core:product-detail", args=["nope"]),
+            reverse("core:category-product-list", args=["nope"]),
+            reverse("core:vendor-detail", args=["nope"]),
+            reverse("core:order-detail", args=[999999]),
+            reverse("core:order-detail", args=[others_order.id]),
+            reverse("core:add-to-wishlist") + "?id=999999",
+        ]:
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+        response = self.client.post(reverse("core:ajax-add-review", args=[999999]), {"review": "x", "rating": 5})
+        self.assertEqual(response.status_code, 404)
+
+    def test_unknown_store_dashboard_objects_give_404(self):
+        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="pass-12345")
+        self.client.force_login(boss)
+        for url in [
+            reverse("useradmin:dashboard-edit-products", args=["nope"]),
+            reverse("useradmin:dashboard-delete-products", args=["nope"]),
+            reverse("useradmin:order_detail", args=[999999]),
+            reverse("useradmin:change_order_status", args=["nope"]),
+            "/useradmin/order_detail/abc/",
+        ]:
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+
+
+class CustomerDashboardTests(TestCase):
+    def test_has_no_orders_chart(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(user)
+        page = self.client.get(reverse("core:dashboard"))
+        self.assertEqual(page.status_code, 200)
+        for gone in ["myChart", 'id="dashboard-tab"', "chart.js"]:
+            self.assertNotContains(page, gone)
+        for tab in ["profile-tab", "orders-tab", "address-tab", "account-detail-tab"]:
+            self.assertContains(page, f'id="{tab}"')
+
+
+class DeliveryAddressTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.product = Product.objects.create(title="Plain", product_status="published")
+        self.url = reverse("core:product-detail", args=[self.product.pid])
+
+    def test_default_address_is_shown_when_there_are_several(self):
+        Address.objects.create(user=self.user, address="1 Old Road")
+        Address.objects.create(user=self.user, address="2 Default Street", status=True)
+        Address.objects.create(user=self.user, address="3 New Lane")
+        self.client.force_login(self.user)
+        page = self.client.get(self.url)
+        self.assertEqual(page.context["address"].address, "2 Default Street")
+        self.assertContains(page, "2 Default Street")
+
+    def test_newest_address_is_used_when_none_is_default(self):
+        Address.objects.create(user=self.user, address="1 Old Road")
+        Address.objects.create(user=self.user, address="3 New Lane")
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(self.url), "3 New Lane")
+
+    def test_prompts_without_an_address(self):
+        self.assertContains(self.client.get(self.url), "Sign in to see your delivery address")
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(self.url), "No delivery address saved yet")
+
+    def test_other_users_addresses_are_never_used(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        Address.objects.create(user=other, address="Not Mine", status=True)
+        self.client.force_login(self.user)
+        self.assertNotContains(self.client.get(self.url), "Not Mine")
