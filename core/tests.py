@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -18,6 +19,11 @@ from userauths.models import User
 
 # Smallest valid GIF, for image uploads in tests.
 GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+
+# Delivery details as entered on the checkout page
+DETAILS = {"full_name": "Buyer B", "email": "buyer@example.com", "phone": "555", "address": "1 Main St",
+           "city": "Town", "state": "", "country": "Land"}
+
 
 def cart_of(**quantities):
     """A session cart holding the given quantities of real products, by title."""
@@ -66,7 +72,7 @@ class MockPaymentTests(TestCase):
 
     def test_pay_marks_order_paid_and_empties_cart(self):
         self.set_cart(cart_of(**{"Test Apple": 2}))
-        response = self.client.post(self.pay_url)
+        response = self.client.post(self.pay_url, DETAILS)
 
         self.assertRedirects(response, reverse("core:payment-completed", args=[self.order.oid]))
         self.assert_paid(True)
@@ -218,7 +224,7 @@ class CartRedrawTests(TestCase):
     def assert_full_cart(self, html):
         self.assertIn('action="/save_checkout_info/"', html)
         self.assertIn("csrfmiddlewaretoken", html)
-        self.assertIn('name="full_name" value="Buyer"', html)
+        self.assertNotIn("Bio Data", html)  # delivery details are asked for on the checkout page
         self.assertIn("Proceed To CheckOut", html)
 
     def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
@@ -460,7 +466,7 @@ class StripeCheckoutSessionTests(TestCase):
         self.addCleanup(patcher.stop)
 
     def test_own_order_gets_a_session_without_touching_paid_status(self):
-        response = self.client.post(self.url)
+        response = self.client.post(self.url, DETAILS)
         self.assertEqual(response.json(), {"sessionId": "cs_test_123"})
         self.order.refresh_from_db()
         self.assertEqual(self.order.stripe_payment_intent, "cs_test_123")
@@ -561,7 +567,7 @@ class StockTests(TestCase):
         return CartOrder.objects.filter(user=user or self.user).latest("id")
 
     def pay(self, order, client=None):
-        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]))
+        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
 
     def stock(self):
         self.apple.refresh_from_db()
@@ -720,8 +726,8 @@ class PayOnceTests(TestCase):
         self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
         order = CartOrder.objects.get(user=user)
         with mock.patch("core.views.pay_order", wraps=pay_order) as charge:
-            self.client.post(reverse("core:mock-payment", args=[order.oid]))
-            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+            self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
+            self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
         self.assertEqual(charge.call_count, 1)
         apple.refresh_from_db()
         self.assertEqual(apple.stock_count, 3)
@@ -788,3 +794,56 @@ class CartPreviewTests(TestCase):
         self.assertIn("<span>5 × </span>$1.50", updated["mini_cart"])
         removed = self.client.get(reverse("core:delete-from-cart"), {"id": self.apple.id}).json()
         self.assertIn("Your cart is empty.", removed["mini_cart"])
+
+
+@override_settings(PAYMENT_MOCK=True)
+class CheckoutDetailsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.user.profile.full_name, self.user.profile.phone = "Buyer Profile", "555-0101"
+        self.user.profile.save()
+        Address.objects.create(user=self.user, address="9 Default Road", mobile="555-0199", status=True)
+        self.client.force_login(self.user)
+        apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": apple.id, "qty": 1})
+
+    def proceed(self):
+        self.client.post(reverse("core:save_checkout_info"))
+        return CartOrder.objects.get(user=self.user)
+
+    def test_cart_page_no_longer_asks_for_details(self):
+        page = self.client.get(reverse("core:cart"))
+        self.assertNotContains(page, "Bio Data")
+        self.assertNotContains(page, 'name="address"')
+        self.assertContains(page, "Proceed To CheckOut")
+
+    def test_checkout_page_asks_for_details_prefilled_from_the_account(self):
+        order = self.proceed()
+        page = self.client.get(reverse("core:checkout", args=[order.oid])).content.decode()
+        self.assertIn("Delivery details", page)
+        for field, value in [("full_name", "Buyer Profile"), ("email", "buyer@example.com"),
+                             ("phone", "555-0101"), ("address", "9 Default Road")]:
+            self.assertRegex(page, rf'name="{field}" value="{value}" form="order-details"')
+        self.assertIn('id="order-details"', page)
+
+    def test_missing_details_block_payment(self):
+        order = self.proceed()
+        response = self.client.post(reverse("core:mock-payment", args=[order.oid]), {**DETAILS, "city": "", "country": " "})
+        self.assertRedirects(response, reverse("core:checkout", args=[order.oid]), fetch_redirect_response=False)
+        self.assertIn("Please fill in: City, Country.", [str(m) for m in get_messages(response.wsgi_request)])
+        order.refresh_from_db()
+        self.assertFalse(order.paid_status)
+        self.assertEqual(order.address, "1 Main St")  # what was typed is kept for the next try
+
+    def test_paying_saves_the_details(self):
+        order = self.proceed()
+        self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
+        order.refresh_from_db()
+        self.assertTrue(order.paid_status)
+        self.assertEqual((order.full_name, order.city, order.country), ("Buyer B", "Town", "Land"))
+
+    def test_applying_a_coupon_keeps_typed_details(self):
+        order = self.proceed()
+        self.client.post(reverse("core:checkout", args=[order.oid]), {"code": "NOPE", **DETAILS, "city": "Typed City"})
+        order.refresh_from_db()
+        self.assertEqual(order.city, "Typed City")

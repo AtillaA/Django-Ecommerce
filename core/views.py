@@ -329,6 +329,28 @@ def update_cart(request):
     return cart_fragment(request, cart)
 
 
+# Delivery details asked for on the checkout page: (order field, label, required)
+ORDER_DETAILS = [
+    ("full_name", "Full name", True),
+    ("email", "Email", True),
+    ("phone", "Phone", True),
+    ("address", "Address", True),
+    ("city", "City", True),
+    ("state", "State", False),
+    ("country", "Country", True),
+]
+
+
+def save_order_details(order, data):
+    """Copy the checkout page's delivery details from data onto the order; return the labels of
+    required details that are still empty."""
+    for field, _, _ in ORDER_DETAILS:
+        if field in data:
+            setattr(order, field, data[field].strip())
+    order.save(update_fields=[field for field, _, _ in ORDER_DETAILS])
+    return [label for field, label, required in ORDER_DETAILS if required and not getattr(order, field)]
+
+
 @login_required
 def save_checkout_info(request):
     cart = refresh_cart(request)
@@ -342,74 +364,29 @@ def save_checkout_info(request):
                 messages.error(request, str(error))
                 return redirect("core:cart")
 
-        full_name = request.POST.get("full_name")
-        email = request.POST.get("email")
-        mobile = request.POST.get("mobile")
-        address = request.POST.get("address")
-        city = request.POST.get("city")
-        state = request.POST.get("state")
-        country = request.POST.get("country")
+        # Delivery details are entered on the checkout page; start from what the account knows
+        profile = request.user.profile
+        default_address = Address.objects.filter(user=request.user).order_by("-status", "-id").first()
+        order = CartOrder.objects.create(
+            user=request.user,
+            price=cart_total(cart),
+            full_name=profile.full_name or request.user.username,
+            email=request.user.email,
+            phone=profile.phone or (default_address.mobile if default_address else ""),
+            address=default_address.address if default_address else "",
+        )
 
-        print(full_name)
-        print(email)
-        print(mobile)
-        print(address)
-        print(city)
-        print(state)
-        print(country)
-
-        request.session['full_name'] = full_name
-        request.session['email'] = email
-        request.session['mobile'] = mobile
-        request.session['address'] = address
-        request.session['city'] = city
-        request.session['state'] = state
-        request.session['country'] = country
-
-
-        if cart:
-            full_name = request.session['full_name']
-            email = request.session['email']
-            phone = request.session['mobile']
-            address = request.session['address']
-            city = request.session['city']
-            state = request.session['state']
-            country = request.session['country']
-
-            # Create ORder Object
-            order = CartOrder.objects.create(
-                user=request.user,
-                price=cart_total(cart),
-                full_name=full_name,
-                email=email,
-                phone=phone,
-                address=address,
-                city=city,
-                state=state,
-                country=country,
+        for p_id, item in cart.items():
+            CartOrderProducts.objects.create(
+                order=order,
+                product_id=int(p_id),
+                invoice_no="INVOICE_NO-" + str(order.id), # INVOICE_NO-5,
+                item=item['title'],
+                image=item['image'],
+                qty=item['qty'],
+                price=item['price'],
+                total=item['subtotal']
             )
-
-            del request.session['full_name']
-            del request.session['email']
-            del request.session['mobile']
-            del request.session['address']
-            del request.session['city']
-            del request.session['state']
-            del request.session['country']
-
-            for p_id, item in cart.items():
-                cart_order_products = CartOrderProducts.objects.create(
-                    order=order,
-                    product_id=int(p_id),
-                    invoice_no="INVOICE_NO-" + str(order.id), # INVOICE_NO-5,
-                    item=item['title'],
-                    image=item['image'],
-                    qty=item['qty'],
-                    price=item['price'],
-                    total=item['subtotal']
-                )
-
-
 
         return redirect("core:checkout", order.oid)
     return redirect("core:cart")
@@ -422,6 +399,9 @@ def create_checkout_session(request, oid):
     order = get_object_or_404(CartOrder, oid=oid, user=request.user)
     if order.paid_status:
         return JsonResponse({"error": "This order is already paid."}, status=400)
+    missing = save_order_details(order, request.POST)
+    if missing:
+        return JsonResponse({"error": f"Please fill in: {', '.join(missing)}."}, status=400)
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     checkout_session = stripe.checkout.Session.create(
@@ -460,6 +440,7 @@ def checkout(request, oid):
 
    
     if request.method == "POST":
+        save_order_details(order, request.POST)  # the coupon form carries the typed details along
         code = request.POST.get("code")
         print("code ========", code)
         coupon = Coupon.objects.filter(code=code, active=True).first()
@@ -487,6 +468,7 @@ def checkout(request, oid):
         "order_items": order_items,
         "stripe_publishable_key": settings.STRIPE_PUBLIC_KEY,
         "payment_mock": settings.PAYMENT_MOCK,
+        "details": [(field, label, required, getattr(order, field) or "") for field, label, required in ORDER_DETAILS],
 
     }
     return render(request, "core/checkout.html", context)
@@ -501,6 +483,12 @@ def mock_payment(request, oid):
     # GET happens after a sign-in redirect; send the user back to the pay button.
     if request.method != "POST":
         return redirect("core:checkout", order.oid)
+
+    if not order.paid_status:
+        missing = save_order_details(order, request.POST)
+        if missing:
+            messages.error(request, f"Please fill in: {', '.join(missing)}.")
+            return redirect("core:checkout", order.oid)
 
     # Stock comes off only when the payment goes through; all of it happens or none of it does.
     # Claiming the order with a conditional UPDATE first means a double-click can't pay twice.

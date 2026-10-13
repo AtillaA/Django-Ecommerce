@@ -112,6 +112,10 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   order's customer details and amount to a fake provider that always approves, the order is
   marked paid (reference `mock_…` stored in `stripe_payment_intent`) and the cart is emptied.
   The site never collects card details; a real provider must take them on its own hosted page.
+- Checkout's delivery details live on the order (`ORDER_DETAILS` in `core/views.py`): the inputs in
+  the checkout page's left column belong to the pay form on the right via `form="order-details"`,
+  and `save_order_details` stores them in `mock_payment`, `create_checkout_session` (Stripe sends
+  them as FormData) and the coupon form. The PayPal button doesn't save them.
 - With `PAYMENT_MOCK=False` the Stripe/PayPal buttons return; they need `STRIPE_*`,
   `PAYPAL_RECEIVER_EMAIL` and `PAYPAL_TEST` in `.env`.
 - `ecomprj/apps.py` pins django-paypal's IPN app to `AutoField`. Without it, `makemigrations`
@@ -195,8 +199,7 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
-- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
-  server log. Most features have no tests.
+- Debug `print()` calls throughout the views. Most features have no tests.
 
 ## Tested and Working
 
@@ -231,8 +234,11 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Header cart preview (hover over "Cart", desktop and mobile): items with quantity, price and a
   remove "×", the total, "View cart" and "Checkout"; it refreshes without a reload when the cart
   changes (`core/async/mini-cart.html`, data from `read_cart` in the context processor).
-- Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
-  anything typed in the checkout details; "Proceed To CheckOut" then works.
+- Cart page: removing lines and changing quantities redraw it in place (no reload); "Proceed To
+  CheckOut" creates the order and opens the checkout page.
+- Checkout page: items, then "Delivery details" (prefilled from the profile, email and default
+  address) on the left; summary, coupon and pay button on the right. Paying saves the details
+  and refuses missing required ones with a message (entries kept); applying a coupon keeps them.
 - Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
   else's item by ID gives 404.
 - Reviews when signed in.

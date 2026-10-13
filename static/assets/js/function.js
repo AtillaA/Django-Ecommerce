@@ -189,13 +189,9 @@ $(document).ready(function () {
     })
 
 
-    // Redraw the cart from the server's fragment, keeping what was typed in the checkout details
+    // Redraw the cart page and the header's cart preview from the server's response
     function redrawCart(response) {
-        let typed = $("#cart-list form").serializeArray()
         $("#cart-list").html(response.data)
-        typed.forEach(function (field) {
-            $("#cart-list form [name='" + field.name + "']").not("[type=hidden]").val(field.value)
-        })
         $(".cart-items-count").text(response.totalcartitems)
         $(".mini-cart").html(response.mini_cart)
     }
