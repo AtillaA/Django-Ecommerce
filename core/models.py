@@ -58,6 +58,12 @@ class Tags(models.Model):
     pass
 
 
+# The site is a single store: every product belongs to this vendor unless another is chosen.
+# Generated vids start with "ven", so this fixed one can't collide and survives renaming the vendor.
+DEFAULT_VENDOR_VID = "nacar"
+DEFAULT_VENDOR_TITLE = "Nacar"
+
+
 class Vendor(models.Model):
     vid = ShortUUIDField(unique=True, length=10, max_length=20,
                          prefix="ven", alphabet="abcdefgh12345")
@@ -84,6 +90,12 @@ class Vendor(models.Model):
     class Meta:
         verbose_name_plural = "Vendors"
 
+    @classmethod
+    def default(cls):
+        """The store's own vendor, given to every product saved without one."""
+        vendor, _ = cls.objects.get_or_create(vid=DEFAULT_VENDOR_VID, defaults={"title": DEFAULT_VENDOR_TITLE})
+        return vendor
+
     def vendor_image(self):
         return mark_safe('<img src="%s" width="50" height="50" />' % (self.image.url))
 
@@ -99,7 +111,8 @@ class Product(models.Model):
     category = models.ForeignKey(
         Category, on_delete=models.SET_NULL, null=True, related_name="category")
     vendor = models.ForeignKey(
-        Vendor, on_delete=models.SET_NULL, null=True, related_name="product")
+        Vendor, on_delete=models.SET_NULL, null=True, blank=True, related_name="product",
+        help_text=f"Leave empty for {DEFAULT_VENDOR_TITLE}.")
 
     title = models.CharField(max_length=100, default="Fresh Pear")
     image = models.ImageField(
@@ -145,6 +158,11 @@ class Product(models.Model):
 
     def product_image(self):
         return mark_safe('<img src="%s" width="50" height="50" />' % (self.image.url))
+
+    def save(self, *args, **kwargs):
+        if self.vendor_id is None:
+            self.vendor = Vendor.default()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.title

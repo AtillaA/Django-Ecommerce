@@ -3,6 +3,7 @@ import tempfile
 from io import StringIO
 from pathlib import Path
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -11,6 +12,9 @@ from taggit.models import Tag
 from core.models import CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
 from userauths.models import User
 
+
+# Smallest valid GIF, for image uploads in tests.
+GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
 
 CART = {
     "1": {"title": "Test Apple", "qty": "2", "price": "1.50", "image": "/media/apple.jpg", "pid": "abc123"},
@@ -149,7 +153,145 @@ class SeedTestDataTests(TestCase):
 
         self.assertQuerySetEqual(Product.objects.all(), [own_product])
         self.assertFalse(Category.objects.exists())
-        self.assertFalse(Vendor.objects.exists())
+        self.assertEqual(list(Vendor.objects.values_list("title", flat=True)), ["Nacar"])
         self.assertFalse(wishlist_model.objects.exists())
         self.assertEqual(list(Tag.objects.values_list("name", flat=True)), ["organic"])
         self.assertFalse(self.media_dir.exists())
+
+
+class FilterProductTests(TestCase):
+    def setUp(self):
+        self.fruit = Category.objects.create(title="Fruit")
+        self.drinks = Category.objects.create(title="Drinks")
+        self.green = Vendor.objects.create(title="Green")
+        self.blue = Vendor.objects.create(title="Blue")
+        for title, category, vendor, price in [
+            ("Apple", self.fruit, self.green, "1.00"),
+            ("Mango", self.fruit, self.blue, "5.00"),
+            ("Juice", self.drinks, self.green, "3.00"),
+        ]:
+            Product.objects.create(title=title, category=category, vendor=vendor, price=price, product_status="published")
+        Product.objects.create(title="Draft", category=self.fruit, vendor=self.green, price="1.00")
+
+    def shown(self, **params):
+        data = self.client.get(reverse("core:filter-product"), params).json()["data"]
+        return {title for title in ["Apple", "Mango", "Juice", "Draft"] if f">{title}</a>" in data}
+
+    def test_no_filters_lists_every_published_product(self):
+        self.assertEqual(self.shown(), {"Apple", "Mango", "Juice"})
+
+    def test_category_alone(self):
+        self.assertEqual(self.shown(**{"category[]": [self.fruit.id]}), {"Apple", "Mango"})
+
+    def test_vendor_alone(self):
+        self.assertEqual(self.shown(**{"vendor[]": [self.green.id]}), {"Apple", "Juice"})
+
+    def test_price_alone(self):
+        self.assertEqual(self.shown(min_price="1.00", max_price="3.00"), {"Apple", "Juice"})
+
+    def test_filters_combine(self):
+        self.assertEqual(self.shown(**{"category[]": [self.fruit.id], "vendor[]": [self.blue.id], "max_price": "10"}), {"Mango"})
+        self.assertEqual(self.shown(**{"category[]": [self.fruit.id], "max_price": "2"}), {"Apple"})
+
+    def test_empty_price_box_does_not_filter(self):
+        self.assertEqual(self.shown(min_price="", max_price=""), {"Apple", "Mango", "Juice"})
+
+    def test_price_box_starts_at_the_highest_price(self):
+        page = self.client.get(reverse("core:product-list")).content.decode()
+        self.assertIn('value="5.00" id="max_price"', page)
+
+
+class CartRedrawTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["cart_data_obj"] = {
+            **CART,
+            "2": {"title": "Test Pear", "qty": "1", "price": "2.00", "image": "/media/pear.jpg", "pid": "def456"},
+        }
+        session.save()
+
+    def assert_full_cart(self, html):
+        self.assertIn('action="/save_checkout_info/"', html)
+        self.assertIn("csrfmiddlewaretoken", html)
+        self.assertIn('name="full_name" value="Buyer"', html)
+        self.assertIn("Proceed To CheckOut", html)
+
+    def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
+        response = self.client.get(reverse("core:delete-from-cart"), {"id": "1"})
+        self.assertEqual(response.json()["totalcartitems"], 1)
+        html = response.json()["data"]
+        self.assert_full_cart(html)
+        self.assertIn("Test Pear", html)
+        self.assertNotIn("Test Apple", html)
+
+    def test_updating_a_quantity_returns_the_whole_cart_with_its_form(self):
+        html = self.client.get(reverse("core:update-cart"), {"id": "2", "qty": "3"}).json()["data"]
+        self.assert_full_cart(html)
+        self.assertIn('value="3"', html)
+
+    def test_cart_page_uses_the_same_fragment(self):
+        self.assert_full_cart(self.client.get(reverse("core:cart")).content.decode())
+
+
+class DefaultVendorTests(TestCase):
+    def test_products_without_a_vendor_get_nacar(self):
+        product = Product.objects.create(title="Plain")
+        self.assertEqual((product.vendor.vid, product.vendor.title), ("nacar", "Nacar"))
+
+    def test_nacar_is_found_after_renaming(self):
+        Vendor.objects.filter(vid="nacar").update(title="Nacar Store")
+        self.assertEqual(Product.objects.create(title="Plain").vendor.title, "Nacar Store")
+        self.assertEqual(Vendor.objects.count(), 1)
+
+    def test_a_chosen_vendor_is_kept(self):
+        other = Vendor.objects.create(title="Other")
+        self.assertEqual(Product.objects.create(title="Plain", vendor=other).vendor, other)
+
+    def test_store_dashboard_product_can_be_published_without_breaking_pages(self):
+        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="pass-12345")
+        self.client.force_login(boss)
+        category = Category.objects.create(title="Snacks")
+        image = SimpleUploadedFile("muffin.gif", GIF, content_type="image/gif")
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_root)
+        with override_settings(MEDIA_ROOT=media_root):
+            self.client.post(reverse("useradmin:dashboard-add-products"), {
+                "title": "Dashboard Muffin", "description": "d", "price": "3", "old_price": "4", "type": "x",
+                "stock_count": "5", "life": "10 days", "mfd": "2026-10-01 10:00", "tags": "sweet",
+                "category": category.id, "image": image,
+            })
+        product = Product.objects.get(title="Dashboard Muffin")
+        self.assertEqual(product.vendor.title, "Nacar")
+
+        Product.objects.filter(pk=product.pk).update(product_status="published")
+        for url in [reverse("core:category-product-list", args=[category.cid]), reverse("core:search") + "?q=Muffin"]:
+            self.assertContains(self.client.get(url), "Dashboard Muffin", msg_prefix=url)
+
+
+class PublishedOnlyTests(TestCase):
+    def setUp(self):
+        category = Category.objects.create(title="Snacks")
+        self.shown = Product.objects.create(title="Shown Snack", category=category, product_status="published")
+        Product.objects.create(title="Other Snack", category=category, product_status="published")
+        Product.objects.create(title="Draft Snack", category=category, product_status="draft")
+        Product.objects.create(title="Review Snack", category=category)  # in_review
+
+    def test_search_shows_only_published_products(self):
+        page = self.client.get(reverse("core:search"), {"q": "Snack"})
+        self.assertContains(page, "Shown Snack")
+        self.assertContains(page, "Other Snack")
+        self.assertNotContains(page, "Draft Snack")
+        self.assertNotContains(page, "Review Snack")
+
+    def test_search_without_a_term_lists_published_products(self):
+        page = self.client.get(reverse("core:search"))
+        self.assertContains(page, "Shown Snack")
+        self.assertNotContains(page, "Draft Snack")
+
+    def test_related_products_are_published_only(self):
+        page = self.client.get(reverse("core:product-detail", args=[self.shown.pid]))
+        self.assertContains(page, "Other Snack")
+        self.assertNotContains(page, "Draft Snack")
+        self.assertNotContains(page, "Review Snack")
