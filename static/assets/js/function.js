@@ -309,6 +309,7 @@ $(document).ready(function () {
             success: function (response) {
                 // this_val.html("✓")
                 this_val.html("<i class='fas fa-heart text-danger'></i>")
+                $(".wishlist-items-count").text(response.wishlist_count)
                 if (response.bool === true) {
                     console.log("Added to wishlist...");
                 }
@@ -335,6 +336,7 @@ $(document).ready(function () {
             },
             success: function (response) {
                 $("#wishlist-list").html(response.data)
+                $(".wishlist-items-count").text(response.wishlist_count)
             }
         })
     })

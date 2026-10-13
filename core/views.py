@@ -598,6 +598,7 @@ def add_to_wishlist(request):
             "bool": True
         }
 
+    context["wishlist_count"] = wishlist_model.objects.filter(user=request.user).count()
     return JsonResponse(context)
 
 
@@ -628,7 +629,7 @@ def remove_wishlist(request):
     }
     wishlist_json = serializers.serialize('json', wishlist)
     t = render_to_string('core/async/wishlist-list.html', context)
-    return JsonResponse({'data':t,'w':wishlist_json})
+    return JsonResponse({'data':t,'w':wishlist_json, 'wishlist_count': wishlist.count()})
 
 
 

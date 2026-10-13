@@ -140,7 +140,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- The header wishlist count doesn't update until a reload.
 - The customer dashboard's orders chart counts all users' orders (`customer_dashboard`).
 - The product page "Delivery" box never shows the user's address: `product_detail_view` passes
   `address = "Login To Continue"`, overriding the context processor (which also returns `None`
@@ -213,7 +212,7 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   respected).
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
-- Wishlist add and remove; the wishlist page lists only your own items, and removing someone
+- Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
   else's item by ID gives 404.
 - Reviews when signed in.
 - Contact form (message saved).

@@ -130,7 +130,7 @@
                                     <a href="{% url 'core:wishlist' %}">
                                         <img class="svgInject" alt="E-commerce" src="{% static 'assets/imgs/theme/icons/icon-heart.svg' %}" />
                                         {% if request.user.is_authenticated %}
-                                        <span class="pro-count blue">{{ wishlist.count }}</span>
+                                        <span class="pro-count blue wishlist-items-count">{{ wishlist.count }}</span>
                                         {% else %}
                                         <span class="pro-count blue">0</span>
                                         {% endif %}
@@ -337,7 +337,7 @@
                                 <a href="{% url 'core:wishlist' %}">
                                     <img alt="E-commerce" src="{% static 'assets/imgs/theme/icons/icon-heart.svg' %}" />
                                     {% if request.user.is_authenticated %}
-                                    <span class="pro-count blue">{{ wishlist.count }}</span>
+                                    <span class="pro-count blue wishlist-items-count">{{ wishlist.count }}</span>
                                     {% else %}
                                     <span class="pro-count blue">0</span>
                                     {% endif %}

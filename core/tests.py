@@ -342,7 +342,14 @@ class UserIsolationTests(TestCase):
     def test_removing_own_wishlist_item(self):
         response = self.client.get(reverse("core:remove-from-wishlist"), {"id": self.alice_wish.id})
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["wishlist_count"], 0)
         self.assertFalse(wishlist_model.objects.filter(id=self.alice_wish.id).exists())
+
+    def test_adding_returns_the_users_new_wishlist_count(self):
+        response = self.client.get(reverse("core:add-to-wishlist"), {"id": self.berry.id})
+        self.assertEqual(response.json()["wishlist_count"], 2)
+        response = self.client.get(reverse("core:add-to-wishlist"), {"id": self.berry.id})
+        self.assertEqual(response.json()["wishlist_count"], 2)
 
     def test_default_address_only_changes_own_addresses(self):
         bob_home = Address.objects.create(user=self.bob, address="Bob home", status=True)
