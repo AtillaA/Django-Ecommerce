@@ -1,7 +1,9 @@
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from userauths.forms import UserRegisterForm, ProfileForm
-from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth import login, authenticate, logout, update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
+from django.urls import reverse
 from django.contrib import messages
 from django.conf import settings
 from userauths.models import Profile, User
@@ -91,3 +93,18 @@ def profile_update(request):
     }
 
     return render(request, "userauths/profile-edit.html", context)
+
+
+@login_required
+def change_password(request):
+    """Account details tab of the customer dashboard: current password, then the new one twice."""
+    if request.method == "POST":
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            update_session_auth_hash(request, form.save())  # keep the user signed in
+            messages.success(request, "Password changed successfully")
+            return redirect("core:dashboard")
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+    return redirect(reverse("core:dashboard") + "#account-detail")

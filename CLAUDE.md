@@ -122,9 +122,9 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- Customers can't manage their account: the dashboard "Account details" form has no
-  `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
-  password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
+- "Forgot password?" on the sign-in page is `href="#"`: there is no password reset flow (it needs
+  an email backend). The dashboard's "Track your order" form posts to `#` (its tab link is
+  commented out, so customers can't reach it).
 
 #### Store dashboard
 
@@ -133,8 +133,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
   is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
 - "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
-- Changing the password logs the user out (no `update_session_auth_hash`) and lands on sign-in
-  with "not authorized".
 
 ### Major
 
@@ -188,6 +186,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
+- Store-dashboard "Change Password" inputs are `type="text"` (passwords show while typing), and
+  it doesn't apply the password rules customers get (`PasswordChangeForm`).
 - Login/sign-up redirect to an unvalidated `next` parameter.
 - Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
   server log. Most features have no tests.
@@ -214,6 +214,12 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   else's item by ID gives 404.
 - Reviews when signed in.
 - Contact form (message saved).
+- Profile edit (`/user/profile/update/`: name, bio, phone, image) updates the signed-in user's
+  profile only.
+- Password change in the dashboard's "Account details" tab: current password, new password
+  twice (Django's password rules); errors reopen the tab; success says "Password changed
+  successfully", keeps the user signed in and shows the Profile tab. The store dashboard's
+  password page also keeps the admin signed in and goes to "Profile setting".
 - Adding addresses and setting a default (only your own addresses change).
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,

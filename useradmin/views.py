@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.db.models import Sum
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.hashers import check_password
 
 
@@ -189,8 +190,9 @@ def change_password(request):
         if check_password(old_password, user.password):
             user.set_password(new_password)
             user.save()
-            messages.success(request, "Password Changed Successfully")
-            return redirect("useradmin:change_password")
+            update_session_auth_hash(request, user)  # keep the user signed in
+            messages.success(request, "Password changed successfully")
+            return redirect("useradmin:settings")
         else:
             messages.error(request, "Old password is not correct")
             return redirect("useradmin:change_password")
