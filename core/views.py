@@ -502,22 +502,22 @@ def mock_payment(request, oid):
     if request.method != "POST":
         return redirect("core:checkout", order.oid)
 
-    if not order.paid_status:
-        # Stock comes off only when the payment goes through; both happen or neither does
-        with transaction.atomic():
+    # Stock comes off only when the payment goes through; all of it happens or none of it does.
+    # Claiming the order with a conditional UPDATE first means a double-click can't pay twice.
+    with transaction.atomic():
+        if CartOrder.objects.filter(pk=order.pk, paid_status=False).update(paid_status=True):
             try:
                 deduct_for_order(order)
             except OutOfStock as error:
+                transaction.set_rollback(True)
                 messages.error(request, str(error))
                 return redirect("core:cart")
             payment = pay_order(order)
             if payment["status"] != "succeeded":
                 transaction.set_rollback(True)
                 return redirect("core:payment-failed")
-            order.paid_status = True
-            order.stripe_payment_intent = payment["id"]
-            order.save()
-        request.session.pop("cart_data_obj", None)
+            CartOrder.objects.filter(pk=order.pk).update(stripe_payment_intent=payment["id"])
+            request.session.pop("cart_data_obj", None)
 
     return redirect("core:payment-completed", order.oid)
 

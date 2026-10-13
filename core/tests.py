@@ -12,6 +12,7 @@ from django.urls import reverse
 from taggit.models import Tag
 
 from core.models import Address, CartOrder, CartOrderProducts, Category, Product, ProductReview, Vendor, wishlist_model
+from core.payments import pay_order
 from userauths.models import User
 
 
@@ -707,3 +708,20 @@ class ShopSortingTests(TestCase):
         data = self.client.get(reverse("core:filter-product"), {"sort": "price-desc"}).json()["data"]
         positions = [data.index(f">{title}</a>") for title in ["Pricey", "Middle", "Cheap"]]
         self.assertEqual(positions, sorted(positions))
+
+
+@override_settings(PAYMENT_MOCK=True)
+class PayOnceTests(TestCase):
+    def test_a_second_pay_request_neither_charges_nor_deducts_again(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(user)
+        apple = Product.objects.create(title="Apple", price="1.50", stock_count=5, product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": apple.id, "qty": 2})
+        self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
+        order = CartOrder.objects.get(user=user)
+        with mock.patch("core.views.pay_order", wraps=pay_order) as charge:
+            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+        self.assertEqual(charge.call_count, 1)
+        apple.refresh_from_db()
+        self.assertEqual(apple.stock_count, 3)
