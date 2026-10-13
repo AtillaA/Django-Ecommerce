@@ -9,7 +9,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from taggit.models import Tag
 
-from core.models import CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
+from core.models import Address, CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
 from userauths.models import User
 
 
@@ -317,3 +317,44 @@ class SignedOutVisitorTests(TestCase):
             response = getattr(self.client, method)(url, data)
             self.assertEqual(response.status_code, 401, url)
             self.assertEqual(response.json(), {"sign_in_url": self.sign_in}, url)
+
+
+class UserIsolationTests(TestCase):
+    def setUp(self):
+        self.alice = User.objects.create_user(username="alice", email="alice@example.com", password="pass-12345")
+        self.bob = User.objects.create_user(username="bob", email="bob@example.com", password="pass-12345")
+        self.apple = Product.objects.create(title="Alice Apple", product_status="published")
+        self.berry = Product.objects.create(title="Bob Berry", product_status="published")
+        self.alice_wish = wishlist_model.objects.create(user=self.alice, product=self.apple)
+        self.bob_wish = wishlist_model.objects.create(user=self.bob, product=self.berry)
+        self.client.force_login(self.alice)
+
+    def test_wishlist_page_lists_only_own_items(self):
+        page = self.client.get(reverse("core:wishlist"))
+        self.assertContains(page, "Alice Apple")
+        self.assertNotContains(page, "Bob Berry")
+
+    def test_cannot_remove_another_users_wishlist_item(self):
+        response = self.client.get(reverse("core:remove-from-wishlist"), {"id": self.bob_wish.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(wishlist_model.objects.filter(id=self.bob_wish.id).exists())
+
+    def test_removing_own_wishlist_item(self):
+        response = self.client.get(reverse("core:remove-from-wishlist"), {"id": self.alice_wish.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(wishlist_model.objects.filter(id=self.alice_wish.id).exists())
+
+    def test_default_address_only_changes_own_addresses(self):
+        bob_home = Address.objects.create(user=self.bob, address="Bob home", status=True)
+        alice_home = Address.objects.create(user=self.alice, address="Alice home", status=True)
+        alice_work = Address.objects.create(user=self.alice, address="Alice work")
+
+        self.client.get(reverse("core:make-default-address"), {"id": alice_work.id})
+        statuses = dict(Address.objects.values_list("address", "status"))
+        self.assertEqual(statuses, {"Bob home": True, "Alice home": False, "Alice work": True})
+
+        response = self.client.get(reverse("core:make-default-address"), {"id": bob_home.id})
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(Address.objects.get(id=alice_work.id).status)
+        alice_home.refresh_from_db()
+        self.assertFalse(alice_home.status)

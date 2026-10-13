@@ -75,6 +75,10 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 
 ## Gotchas
 
+- User data (orders, addresses, wishlist, reviews, profile) must be read and changed only through
+  `request.user`: filter querysets by it and fetch single rows with
+  `get_object_or_404(Model, id=..., user=request.user)`. The template ignored this everywhere;
+  `core/tests.py` `UserIsolationTests` covers the fixed views.
 - Products only appear on the storefront when `product_status == "published"` (new ones default
   to `in_review`); the homepage shows only `featured` ones.
 - All data is disposable until launch. After model changes that clash with existing rows,
@@ -136,10 +140,7 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- Wishlist page lists every user's items (`wishlist_model.objects.all()`), and the header
-  wishlist count doesn't update until a reload.
-- Making an address default clears every other user's default (`make_address_default` updates
-  all `Address` rows).
+- The header wishlist count doesn't update until a reload.
 - The customer dashboard's orders chart counts all users' orders (`customer_dashboard`).
 - The product page "Delivery" box never shows the user's address: `product_detail_view` passes
   `address = "Login To Continue"`, overriding the context processor (which also returns `None`
@@ -188,7 +189,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `paid_status` to False on whatever order ID it is given.
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
-- `remove_wishlist` deletes any wishlist row by ID (no ownership check).
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
 - Login/sign-up redirect to an unvalidated `next` parameter.
@@ -213,9 +213,10 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   respected).
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
-- Wishlist add and remove.
+- Wishlist add and remove; the wishlist page lists only your own items, and removing someone
+  else's item by ID gives 404.
 - Reviews when signed in.
 - Contact form (message saved).
-- Adding addresses and setting a default.
+- Adding addresses and setting a default (only your own addresses change).
 - Order history and order detail in the customer dashboard.
 - Checkout with the mock payment (`core/tests.py` covers it).

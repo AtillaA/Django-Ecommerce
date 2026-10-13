@@ -558,14 +558,14 @@ def order_detail(request, id):
 
 @ajax_login_required
 def make_address_default(request):
-    id = request.GET['id']
-    Address.objects.update(status=False)
-    Address.objects.filter(id=id).update(status=True)
+    address = get_object_or_404(Address, id=request.GET['id'], user=request.user)
+    Address.objects.filter(user=request.user).update(status=False)
+    Address.objects.filter(id=address.id).update(status=True)
     return JsonResponse({"boolean": True})
 
 @login_required
 def wishlist_view(request):
-    wishlist = wishlist_model.objects.all()
+    wishlist = wishlist_model.objects.filter(user=request.user)
     context = {
         "w":wishlist
     }
@@ -619,7 +619,7 @@ def add_to_wishlist(request):
 def remove_wishlist(request):
     pid = request.GET['id']
     wishlist = wishlist_model.objects.filter(user=request.user)
-    wishlist_d = wishlist_model.objects.get(id=pid)
+    wishlist_d = get_object_or_404(wishlist_model, id=pid, user=request.user)
     delete_product = wishlist_d.delete()
     
     context = {
