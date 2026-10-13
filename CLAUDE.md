@@ -79,9 +79,13 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   to `in_review`); the homepage shows only `featured` ones.
 - All data is disposable until launch. After model changes that clash with existing rows,
   resetting is fine (PowerShell): `del db.sqlite3; python manage.py migrate; python manage.py seed_test_data`.
-- `seed_test_data` marks its rows by IDs (`pid`/`cid`/`vid`) starting with `test-`, which
-  generated IDs never do; `--delete` removes only those, plus their gallery images, reviews,
-  wishlist rows, unused tags and `media/test-data/`. Update its `PRODUCTS` list when the
+- The site is a single store: every product saved without a vendor gets the default vendor
+  "Nacar" (`Vendor.default()`, fixed `vid="nacar"`, so renaming it is safe; created by migration
+  0027). Templates assume every product has a vendor (`{% url 'core:vendor-detail' p.vendor.vid %}`):
+  deleting Nacar would null it on all products (`SET_NULL`) and crash category/search pages.
+- `seed_test_data` marks its rows by IDs (`pid`/`cid`) starting with `test-`, which generated
+  IDs never do; `--delete` removes only those, plus their gallery images, reviews, wishlist rows,
+  unused tags and `media/test-data/` (products use Nacar, which it keeps). Update its `PRODUCTS` list when the
   Product model changes (`core/tests.py` fails if it breaks).
 - Deleting a product any other way (e.g. in the admin) leaves its wishlist rows with
   `product=None`, which makes `/wishlist/` return 500. Delete those rows too.
@@ -114,8 +118,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- A published product with no vendor crashes the category page and search (500,
-  `{% url 'core:vendor-detail' p.vendor.vid %}`). Store-dashboard products have no vendor.
 - Search (`search_view`) and "related products" (`product_detail_view`) include unpublished
   (draft/in-review) products; `/search/` without `q` crashes.
 - Customers can't manage their account: the dashboard "Account details" form has no
@@ -128,9 +130,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Store dashboard
 
-- Products added in `/useradmin/` can't go live: `AddProductForm` has no status, vendor or
-  featured fields, so they stay `in_review` (publishing needs `/admin/`, then the missing vendor
-  crashes pages as above).
+- Products added in `/useradmin/` can't go live: `AddProductForm` has no status or featured
+  fields, so they stay `in_review` (publishing needs `/admin/`).
 - Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
   is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
 - "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
@@ -205,6 +206,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Sign-up and sign-in.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search (with a search term).
+- Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
+  search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
 - Add to cart from product lists (including filtered results) and the product page (quantity
   respected).

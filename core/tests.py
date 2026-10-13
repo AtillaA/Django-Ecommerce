@@ -3,6 +3,7 @@ import tempfile
 from io import StringIO
 from pathlib import Path
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -11,6 +12,9 @@ from taggit.models import Tag
 from core.models import CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
 from userauths.models import User
 
+
+# Smallest valid GIF, for image uploads in tests.
+GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
 
 CART = {
     "1": {"title": "Test Apple", "qty": "2", "price": "1.50", "image": "/media/apple.jpg", "pid": "abc123"},
@@ -149,7 +153,7 @@ class SeedTestDataTests(TestCase):
 
         self.assertQuerySetEqual(Product.objects.all(), [own_product])
         self.assertFalse(Category.objects.exists())
-        self.assertFalse(Vendor.objects.exists())
+        self.assertEqual(list(Vendor.objects.values_list("title", flat=True)), ["Nacar"])
         self.assertFalse(wishlist_model.objects.exists())
         self.assertEqual(list(Tag.objects.values_list("name", flat=True)), ["organic"])
         self.assertFalse(self.media_dir.exists())
@@ -229,3 +233,38 @@ class CartRedrawTests(TestCase):
 
     def test_cart_page_uses_the_same_fragment(self):
         self.assert_full_cart(self.client.get(reverse("core:cart")).content.decode())
+
+
+class DefaultVendorTests(TestCase):
+    def test_products_without_a_vendor_get_nacar(self):
+        product = Product.objects.create(title="Plain")
+        self.assertEqual((product.vendor.vid, product.vendor.title), ("nacar", "Nacar"))
+
+    def test_nacar_is_found_after_renaming(self):
+        Vendor.objects.filter(vid="nacar").update(title="Nacar Store")
+        self.assertEqual(Product.objects.create(title="Plain").vendor.title, "Nacar Store")
+        self.assertEqual(Vendor.objects.count(), 1)
+
+    def test_a_chosen_vendor_is_kept(self):
+        other = Vendor.objects.create(title="Other")
+        self.assertEqual(Product.objects.create(title="Plain", vendor=other).vendor, other)
+
+    def test_store_dashboard_product_can_be_published_without_breaking_pages(self):
+        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="pass-12345")
+        self.client.force_login(boss)
+        category = Category.objects.create(title="Snacks")
+        image = SimpleUploadedFile("muffin.gif", GIF, content_type="image/gif")
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_root)
+        with override_settings(MEDIA_ROOT=media_root):
+            self.client.post(reverse("useradmin:dashboard-add-products"), {
+                "title": "Dashboard Muffin", "description": "d", "price": "3", "old_price": "4", "type": "x",
+                "stock_count": "5", "life": "10 days", "mfd": "2026-10-01 10:00", "tags": "sweet",
+                "category": category.id, "image": image,
+            })
+        product = Product.objects.get(title="Dashboard Muffin")
+        self.assertEqual(product.vendor.title, "Nacar")
+
+        Product.objects.filter(pk=product.pk).update(product_status="published")
+        for url in [reverse("core:category-product-list", args=[category.cid]), reverse("core:search") + "?q=Muffin"]:
+            self.assertContains(self.client.get(url), "Dashboard Muffin", msg_prefix=url)
