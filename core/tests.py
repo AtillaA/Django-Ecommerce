@@ -1,4 +1,5 @@
 import shutil
+from decimal import Decimal
 from unittest import mock
 import tempfile
 from io import StringIO
@@ -17,9 +18,9 @@ from userauths.models import User
 # Smallest valid GIF, for image uploads in tests.
 GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
 
-CART = {
-    "1": {"title": "Test Apple", "qty": "2", "price": "1.50", "image": "/media/apple.jpg", "pid": "abc123"},
-}
+def cart_of(**quantities):
+    """A session cart holding the given quantities of real products, by title."""
+    return {str(Product.objects.get(title=title).id): {"qty": qty} for title, qty in quantities.items()}
 
 
 @override_settings(PAYMENT_MOCK=True)
@@ -27,6 +28,7 @@ class MockPaymentTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
         self.order = CartOrder.objects.create(user=self.user, price="3.00", full_name="Buyer", email="buyer@example.com")
+        Product.objects.create(title="Test Apple", price="1.50", product_status="published")
         self.pay_url = reverse("core:mock-payment", args=[self.order.oid])
         self.client.force_login(self.user)
 
@@ -40,7 +42,7 @@ class MockPaymentTests(TestCase):
         self.assertEqual(self.order.paid_status, paid)
 
     def test_checkout_info_creates_order_and_shows_mock_pay_button(self):
-        self.set_cart(CART)
+        self.set_cart(cart_of(**{"Test Apple": 2}))
         response = self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer", "email": "buyer@example.com"})
 
         order = CartOrder.objects.exclude(pk=self.order.pk).get(user=self.user)
@@ -62,7 +64,7 @@ class MockPaymentTests(TestCase):
         self.assertTrue(response.url.startswith(reverse("userauths:sign-in")))
 
     def test_pay_marks_order_paid_and_empties_cart(self):
-        self.set_cart(CART)
+        self.set_cart(cart_of(**{"Test Apple": 2}))
         response = self.client.post(self.pay_url)
 
         self.assertRedirects(response, reverse("core:payment-completed", args=[self.order.oid]))
@@ -207,10 +209,9 @@ class CartRedrawTests(TestCase):
         self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
         self.client.force_login(self.user)
         session = self.client.session
-        session["cart_data_obj"] = {
-            **CART,
-            "2": {"title": "Test Pear", "qty": "1", "price": "2.00", "image": "/media/pear.jpg", "pid": "def456"},
-        }
+        self.apple = Product.objects.create(title="Test Apple", price="1.50", product_status="published")
+        self.pear = Product.objects.create(title="Test Pear", price="2.00", product_status="published")
+        session["cart_data_obj"] = cart_of(**{"Test Apple": 2, "Test Pear": 1})
         session.save()
 
     def assert_full_cart(self, html):
@@ -220,7 +221,7 @@ class CartRedrawTests(TestCase):
         self.assertIn("Proceed To CheckOut", html)
 
     def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
-        response = self.client.get(reverse("core:delete-from-cart"), {"id": "1"})
+        response = self.client.get(reverse("core:delete-from-cart"), {"id": self.apple.id})
         self.assertEqual(response.json()["totalcartitems"], 1)
         html = response.json()["data"]
         self.assert_full_cart(html)
@@ -228,7 +229,7 @@ class CartRedrawTests(TestCase):
         self.assertNotIn("Test Apple", html)
 
     def test_updating_a_quantity_returns_the_whole_cart_with_its_form(self):
-        html = self.client.get(reverse("core:update-cart"), {"id": "2", "qty": "3"}).json()["data"]
+        html = self.client.get(reverse("core:update-cart"), {"id": self.pear.id, "qty": "3"}).json()["data"]
         self.assert_full_cart(html)
         self.assertIn('value="3"', html)
 
@@ -490,3 +491,55 @@ class StripeCheckoutSessionTests(TestCase):
         self.client.logout()
         self.assertEqual(self.client.post(self.url).status_code, 401)
         self.create_session.assert_not_called()
+
+
+class CartRulesTests(TestCase):
+    def setUp(self):
+        self.apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+        self.draft = Product.objects.create(title="Draft", price="1.00")
+
+    def add(self, product, qty, **extra):
+        return self.client.get(reverse("core:add-to-cart"), {"id": product.id, "qty": qty, **extra})
+
+    def cart(self):
+        return self.client.session["cart_data_obj"]
+
+    def test_adding_again_adds_to_the_quantity(self):
+        self.add(self.apple, 2)
+        self.add(self.apple, 3)
+        self.assertEqual(self.cart()[str(self.apple.id)]["qty"], 5)
+
+    def test_prices_come_from_the_database_not_the_browser(self):
+        self.add(self.apple, 2, price="0.01", title="Free Apple")
+        line = self.cart()[str(self.apple.id)]
+        self.assertEqual((line["title"], line["price"], line["subtotal"]), ("Apple", "1.50", "3.00"))
+
+    def test_price_changes_reach_carts_already_holding_the_product(self):
+        self.add(self.apple, 2)
+        Product.objects.filter(pk=self.apple.pk).update(price="2.00")
+        page = self.client.get(reverse("core:cart"))
+        self.assertEqual(page.context["cart_total_amount"], Decimal("4.00"))
+
+    def test_invalid_quantities_are_refused(self):
+        for qty in ["0", "-2", "", "abc", "1.5"]:
+            response = self.add(self.apple, qty)
+            self.assertEqual(response.status_code, 400, qty)
+        self.assertNotIn(str(self.apple.id), self.client.session.get("cart_data_obj", {}))
+
+    def test_update_refuses_invalid_quantities_and_keeps_the_old_one(self):
+        self.add(self.apple, 2)
+        for qty in ["0", "-1", "", "x"]:
+            response = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": qty})
+            self.assertEqual(response.status_code, 400, qty)
+            self.assertIn("error", response.json())
+            self.assertIn("data", response.json())  # the unchanged cart, so the page can undo the edit
+        self.assertEqual(self.cart()[str(self.apple.id)]["qty"], 2)
+
+    def test_unpublished_or_unknown_products_cannot_be_added(self):
+        self.assertEqual(self.add(self.draft, 1).status_code, 404)
+        self.assertEqual(self.client.get(reverse("core:add-to-cart"), {"id": "abc", "qty": 1}).status_code, 404)
+
+    def test_line_subtotals_are_exact(self):
+        Product.objects.filter(pk=self.apple.pk).update(price="6.49")
+        self.add(self.apple, 2)
+        self.assertContains(self.client.get(reverse("core:cart")), "$12.98")

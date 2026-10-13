@@ -97,6 +97,9 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   `product=None`, which makes `/wishlist/` return 500. Delete those rows too.
 - `.env` is git-ignored and required. `SECRET_KEY` has no default; `DEBUG` defaults to False. The
   old hard-coded secret key is public in git history: never use it in production.
+- The session cart (`core/cart.py`) trusts only product IDs and quantities: titles, prices and
+  images are re-read from the database on every cart read (`refresh_cart`), so the browser can't
+  set prices and totals always match the product pages. Quantities are whole numbers >= 1.
 - Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
   `DEBUG` off). Checkout then shows one "test payment" button; `core/payments.py` sends the
   order's customer details and amount to a fake provider that always approves, the order is
@@ -133,9 +136,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- Cart quantities aren't validated: negative values give negative totals; an empty value makes
-  `/update-cart/` fail (500) and hides the refresh button; adding an item already in the cart
-  replaces its quantity instead of adding to it.
 - Stock is never checked when adding to cart or ordering, and orders don't reduce it
   (`in_stock`/`stock_count` unused in views).
 - `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
@@ -185,9 +185,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   relative `favicon.svg` and `slider-range.css` paths (404 on most pages),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
-  and a dead Cloudflare `email-decode.min.js` reference.
-- Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and orders
-  are built from them. Must be fixed before taking real orders.
+  a dead Cloudflare `email-decode.min.js` reference, and `core/product-detail.html` calls
+  `hljs` before loading highlight.js from a broken relative URL (a JS error on every product page).
 - With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
   verifying the Stripe payment.
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
@@ -217,7 +216,9 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
 - Add to cart from product lists (including filtered results) and the product page (quantity
-  respected).
+  respected); adding an item already in the cart adds to its quantity; quantities below 1,
+  empty or non-numeric are refused (browser and server) and the old value is restored; line
+  subtotals and totals are exact and use database prices.
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
 - Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
