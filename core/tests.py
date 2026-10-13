@@ -639,3 +639,27 @@ class StockTests(TestCase):
         self.assertContains(self.client.get(reverse("core:product-list")), "Out of stock")
         Product.objects.filter(pk=self.apple.pk).update(stock_count=3)
         self.assertContains(self.client.get(reverse("core:product-detail", args=[self.apple.pid])), "3 in stock")
+
+
+class DiscountTests(TestCase):
+    def test_discount_percentage(self):
+        for price, old_price, expected in [("9.99", "11.99", 17), ("5.00", "10.00", 50), ("5.00", "5.00", 0),
+                                           ("5.00", "2.99", 0), ("5.00", "0.00", 0), ("9.99", "10.00", 0)]:
+            product = Product(price=Decimal(price), old_price=Decimal(old_price))
+            self.assertEqual(product.get_precentage(), expected, f"{price} vs {old_price}")
+
+    def test_badge_and_old_price_only_show_for_a_real_discount(self):
+        on_sale = Product.objects.create(title="On Sale", price="9.99", old_price="11.99", product_status="published")
+        full = Product.objects.create(title="Full Price", price="5.00", old_price="2.99", product_status="published")
+        page = self.client.get(reverse("core:product-detail", args=[on_sale.pid]))
+        self.assertContains(page, "-17% Off")
+        self.assertContains(page, "$11.99")
+        page = self.client.get(reverse("core:product-detail", args=[full.pid]))
+        self.assertNotContains(page, "% Off")
+        self.assertNotContains(page, "$2.99")
+
+    def test_cart_uses_the_sale_price(self):
+        on_sale = Product.objects.create(title="On Sale", price="9.99", old_price="11.99", product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": on_sale.id, "qty": 2})
+        page = self.client.get(reverse("core:cart"))
+        self.assertEqual(page.context["cart_total_amount"], Decimal("19.98"))

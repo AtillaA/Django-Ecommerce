@@ -143,8 +143,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
-  templates show it as the discount ("-83% Off").
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
   order confirmations.
 
@@ -242,6 +240,9 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
   and so does another user's order.
+- Discounts: badges and the struck-through old price show only for a real discount, as a whole
+  percentage off `old_price` (`get_precentage`: 17 for 9.99 vs 11.99); the cart charges the sale
+  price.
 - Stock: products show "N in stock" or "Out of stock" (no Add button); carts can't exceed stock
   (add, update, checkout); paying takes the quantities off stock, all or nothing, and a payment
   is refused if stock ran out meanwhile.

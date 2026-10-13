@@ -176,8 +176,10 @@ class Product(models.Model):
         return self.stock_count if self.in_stock else 0
 
     def get_precentage(self):
-        new_price = (self.price / self.old_price) * 100
-        return new_price
+        """Discount off old_price as a whole percentage (17 for 9.99 vs 11.99); 0 when there is none."""
+        if not self.old_price or self.old_price <= self.price:
+            return 0
+        return round((self.old_price - self.price) / self.old_price * 100)
 
 
 class ProductImages(models.Model):

@@ -50,7 +50,7 @@
                                     </div>
                                     <div class="col-md-6 col-sm-12 col-xs-12">
                                         <div class="detail-info pr-30 pl-30">
-                                            <span class="stock-status out-stock"> -{{p.get_precentage|floatformat:0}}% </span>
+                                            {% if p.get_precentage %}<span class="stock-status out-stock"> -{{p.get_precentage|floatformat:0}}% </span>{% endif %}
                                             <h2 class="title-detail">{{p.title}}</h2>
                                             <div class="product-detail-rating">
                                                 <div class="product-rate-cover text-end">
@@ -64,8 +64,8 @@
                                                 <div class="product-price primary-color float-left">
                                                     <span class="current-price text-brand">$</span><span class="current-price text-brand current-price current-product-price-{{ p.id }}" id="current-product-price">{{p.price}}</span>
                                                     <span>
-                                                        <span class="save-price font-md color3 ml-15">-{{p.get_precentage|floatformat:0}}% Off</span>
-                                                    <span class="old-price font-md ml-15">${{p.old_price}}</span>
+                                                        {% if p.get_precentage %}<span class="save-price font-md color3 ml-15">-{{p.get_precentage|floatformat:0}}% Off</span>{% endif %}
+                                                    {% if p.get_precentage %}<span class="old-price font-md ml-15">${{p.old_price}}</span>{% endif %}
                                                     </span>
                                                 </div>
                                             </div>
@@ -413,7 +413,7 @@
                                                             <a href="{% url 'core:product-detail' p.pid %}" class="action-btn"><i class="fi-rs-eye"></i></a>
                                                         </div>
                                                         <div class="product-badges product-badges-position product-badges-mrg">
-                                                            <span class="hot">-{{p.get_precentage|floatformat:0}}%</span>
+                                                            {% if p.get_precentage %}<span class="hot">-{{p.get_precentage|floatformat:0}}%</span>{% endif %}
                                                         </div>
                                                     </div>
                                                     <div class="product-content-wrap">
@@ -436,7 +436,7 @@
                                                         <div class="product-card-bottom">
                                                             <div class="product-price">
                                                                 <span>$</span> <span class="current-product-price-{{ p.id }}">{{p.price}}</span>
-                                                                <span class="old-price">${{p.old_price}}</span>
+                                                                {% if p.get_precentage %}<span class="old-price">${{p.old_price}}</span>{% endif %}
                                                             </div>
                                                             <div class="add-cart">
                                                                 <input type="hidden" value="1" id="product-quantity" class="product-quantity-{{ p.id }}">
