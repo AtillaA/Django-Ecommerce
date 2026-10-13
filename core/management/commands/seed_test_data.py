@@ -31,35 +31,35 @@ CATEGORIES = [
     ("test-pantry", "Pantry", "theme/icons/category-9.svg"),
 ]
 
-# (title, cid, price, old price, featured, tags, images: main first, then gallery)
+# (title, cid, price, old price, stock, featured, tags, images: main first, then gallery)
 PRODUCTS = [
-    ("Sahale Raspberry Crumble Cashew Mix", "test-snacks", "6.49", "7.99", True,
+    ("Sahale Raspberry Crumble Cashew Mix", "test-snacks", "6.49", "7.99", 25, True,
      ["snacks", "nuts"], ["product-2-1.jpg", "product-2-2.jpg"]),
-    ("Made in Nature Veggie Pops, Broccoli Cheddar", "test-snacks", "4.99", "5.99", True,
+    ("Made in Nature Veggie Pops, Broccoli Cheddar", "test-snacks", "4.99", "5.99", 25, True,
      ["snacks", "organic"], ["product-3-1.jpg", "product-3-2.jpg"]),
-    ("Sahale Asian Sesame Edamame Bean + Nut Mix", "test-snacks", "5.49", "6.49", False,
+    ("Sahale Asian Sesame Edamame Bean + Nut Mix", "test-snacks", "5.49", "6.49", 25, False,
      ["snacks", "nuts"], ["product-4-1.jpg", "product-4-2.jpg"]),
-    ("Dried Mango Slices", "test-snacks", "3.99", "4.99", True,
+    ("Dried Mango Slices", "test-snacks", "3.99", "4.99", 25, True,
      ["snacks", "fruit"], ["product-14-1.jpg"]),
-    ("Dandy Blend Instant Herbal Beverage", "test-drinks", "18.99", "21.99", True,
+    ("Dandy Blend Instant Herbal Beverage", "test-drinks", "18.99", "21.99", 25, True,
      ["drinks"], ["product-1-1.jpg", "product-1-2.jpg"]),
-    ("Cafe Altura Organic Coffee, Classic Roast", "test-drinks", "9.99", "11.99", True,
+    ("Cafe Altura Organic Coffee, Classic Roast", "test-drinks", "9.99", "11.99", 25, True,
      ["drinks", "coffee", "organic"], ["product-9-1.jpg", "product-9-2.jpg"]),
-    ("Pukka Organic Turmeric Glow Latte", "test-drinks", "7.49", "8.99", False,
+    ("Pukka Organic Turmeric Glow Latte", "test-drinks", "7.49", "8.99", 25, False,
      ["drinks", "organic"], ["product-10-1.jpg", "product-10-2.jpg"]),
-    ("Reishi 2-in-1 Coffee, 30 Bags", "test-drinks", "12.99", "14.99", True,
+    ("Reishi 2-in-1 Coffee, 30 Bags", "test-drinks", "12.99", "14.99", 25, True,
      ["drinks", "coffee"], ["product-12-1.jpg", "product-12-2.jpg"]),
-    ("Let's Do Organic Unsweetened Coconut Flakes", "test-pantry", "3.49", "4.29", True,
+    ("Let's Do Organic Unsweetened Coconut Flakes", "test-pantry", "3.49", "4.29", 25, True,
      ["pantry", "organic"], ["product-5-1.jpg", "product-5-2.jpg"]),
-    ("Wilderness Poets Raw Pistachio Butter", "test-pantry", "15.99", "18.99", False,
+    ("Wilderness Poets Raw Pistachio Butter", "test-pantry", "15.99", "18.99", 25, False,
      ["pantry", "nuts"], ["product-7-1.jpg", "product-7-2.jpg"]),
-    ("SweetLeaf Stevia Sweetener, 70 Packets", "test-pantry", "6.99", "7.99", True,
+    ("SweetLeaf Stevia Sweetener, 70 Packets", "test-pantry", "6.99", "7.99", 25, True,
      ["pantry"], ["product-15-1.jpg", "product-15-2.jpg"]),
-    ("Organic Moringa Powder", "test-pantry", "11.49", "13.99", False,
+    ("Organic Moringa Powder", "test-pantry", "11.49", "13.99", 0, False,
      ["pantry", "organic"], ["product-16-1.jpg", "product-16-2.jpg"]),
 ]
 
-TAGS = {tag for product in PRODUCTS for tag in product[5]}
+TAGS = {tag for product in PRODUCTS for tag in product[6]}
 
 
 class Command(BaseCommand):
@@ -98,7 +98,7 @@ class Command(BaseCommand):
             cid: Category.objects.create(cid=cid, title=title, image=self.copy_image(image))
             for cid, title, image in CATEGORIES
         }
-        for number, (title, cid, price, old_price, featured, tags, images) in enumerate(PRODUCTS, start=1):
+        for number, (title, cid, price, old_price, stock, featured, tags, images) in enumerate(PRODUCTS, start=1):
             pid = f"{ID_PREFIX}{number:02}"
             product = Product.objects.create(
                 pid=pid,
@@ -109,6 +109,7 @@ class Command(BaseCommand):
                 description=f"{title}. Test product created by seed_test_data.",
                 price=price,
                 old_price=old_price,
+                stock_count=stock,
                 mfd=timezone.now(),
                 product_status="published",
                 featured=featured,

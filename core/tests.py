@@ -543,3 +543,99 @@ class CartRulesTests(TestCase):
         Product.objects.filter(pk=self.apple.pk).update(price="6.49")
         self.add(self.apple, 2)
         self.assertContains(self.client.get(reverse("core:cart")), "$12.98")
+
+
+@override_settings(PAYMENT_MOCK=True)
+class StockTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(self.user)
+        self.apple = Product.objects.create(title="Apple", price="1.50", stock_count=3, product_status="published")
+
+    def add(self, qty):
+        return self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": qty})
+
+    def place_order(self, client=None, user=None):
+        (client or self.client).post(reverse("core:save_checkout_info"), {"full_name": "Buyer", "email": "buyer@example.com"})
+        return CartOrder.objects.filter(user=user or self.user).latest("id")
+
+    def pay(self, order, client=None):
+        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]))
+
+    def stock(self):
+        self.apple.refresh_from_db()
+        return self.apple.stock_count
+
+    def test_adding_more_than_in_stock_is_refused(self):
+        self.assertEqual(self.add(2).status_code, 200)
+        response = self.add(2)  # 4 in total
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "Sorry, only 3 of Apple left in stock.")
+        self.assertEqual(self.client.session["cart_data_obj"][str(self.apple.id)]["qty"], 2)
+
+    def test_switched_off_products_are_out_of_stock(self):
+        Product.objects.filter(pk=self.apple.pk).update(in_stock=False)
+        response = self.add(1)
+        self.assertEqual((response.status_code, response.json()["error"]), (409, "Sorry, Apple is out of stock."))
+
+    def test_updating_beyond_stock_is_refused(self):
+        self.add(1)
+        response = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": 5})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("data", response.json())
+        self.assertEqual(self.client.session["cart_data_obj"][str(self.apple.id)]["qty"], 1)
+
+    def test_checkout_rechecks_stock(self):
+        self.add(3)
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=1)
+        response = self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
+        self.assertRedirects(response, reverse("core:cart"), fetch_redirect_response=False)
+        self.assertFalse(CartOrder.objects.exists())
+
+    def test_paying_deducts_stock(self):
+        self.add(2)
+        order = self.place_order()
+        self.assertEqual(self.stock(), 3)  # placing the order doesn't take stock
+        self.pay(order)
+        order.refresh_from_db()
+        self.assertTrue(order.paid_status)
+        self.assertEqual(self.stock(), 1)
+
+    def test_payment_is_refused_when_stock_ran_out_meanwhile(self):
+        self.add(2)
+        order = self.place_order()
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=1)
+        response = self.pay(order)
+        self.assertRedirects(response, reverse("core:cart"), fetch_redirect_response=False)
+        order.refresh_from_db()
+        self.assertFalse(order.paid_status)
+        self.assertIsNone(order.stripe_payment_intent)
+        self.assertEqual(self.stock(), 1)
+
+    def test_two_buyers_cannot_both_take_the_last_items(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        other_client = Client()
+        other_client.force_login(other)
+        self.add(3)
+        other_client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 3})
+        first, second = self.place_order(), self.place_order(other_client, other)
+        self.pay(first)
+        self.pay(second, other_client)
+        first.refresh_from_db(), second.refresh_from_db()
+        self.assertEqual((first.paid_status, second.paid_status), (True, False))
+        self.assertEqual(self.stock(), 0)
+
+    def test_failed_payment_keeps_the_stock(self):
+        self.add(2)
+        order = self.place_order()
+        with mock.patch("core.views.pay_order", return_value={"status": "failed", "id": "x"}):
+            response = self.pay(order)
+        self.assertRedirects(response, reverse("core:payment-failed"), fetch_redirect_response=False)
+        self.assertEqual(self.stock(), 3)
+
+    def test_out_of_stock_is_shown(self):
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=0)
+        self.assertContains(self.client.get(reverse("core:product-detail", args=[self.apple.pid])), "Out of stock")
+        self.assertContains(self.client.get(reverse("core:product-list")), "Out of stock")
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=3)
+        self.assertContains(self.client.get(reverse("core:product-detail", args=[self.apple.pid])), "3 in stock")

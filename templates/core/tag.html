@@ -113,7 +113,11 @@
                                             <input type="hidden" class="product-id-{{ p.id }}" value="{{ p.id }}">
                                             <input type="hidden" class="product-title-{{ p.id }}" value="{{ p.title }}">
                                             <div class="d-flex">
+                                                {% if p.available_stock %}
                                                 <button class="add add-to-cart-btn" data-index="{{ p.id }}" style="border: none;" id="add-to-cart-btn"><i class="fi-rs-shopping-cart mr-5"></i>Add</button>
+                                                {% else %}
+                                                <span class="text-danger font-small">Out of stock</span>
+                                                {% endif %}
                                                 <button style="border: none; background: none;" class="add-to-wishlist" data-product-item="{{p.id}}"><i class="fi-rs-heart" style="fill: aqua;"></i></button>
                                             </div>
                                             <!-- <button class="add add-to-cart-btn" data-index="{{ p.id }}" style="border: none;" id="add-to-cart-btn"><i class="fi-rs-shopping-cart mr-5"></i>Add</button> -->

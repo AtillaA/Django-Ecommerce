@@ -10,11 +10,13 @@ from userauths.models import ContactUs, Profile
 from core.forms import ProductReviewForm
 from core.cart import CART_SESSION_KEY, QUANTITY_ERROR, cart_line, cart_total, parse_quantity, refresh_cart
 from core.payments import pay_order
+from core.stock import OutOfStock, check_quantity, deduct_for_order
 from django.template.loader import render_to_string
 from django.contrib import messages
 
 from django.urls import reverse
 from django.conf import settings
+from django.db import transaction
 from django.views.decorators.http import require_POST
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
@@ -227,6 +229,10 @@ def add_to_cart(request):
     cart = refresh_cart(request)
     if product_id in cart:
         qty += cart[product_id]["qty"]  # adding an item already in the cart adds to its quantity
+    try:
+        check_quantity(product, qty)
+    except OutOfStock as error:
+        return JsonResponse({"error": str(error)}, status=409)
     cart[product_id] = cart_line(product, qty)
     request.session[CART_SESSION_KEY] = cart
     return JsonResponse({"data": cart, 'totalcartitems': len(cart)})
@@ -266,7 +272,12 @@ def update_cart(request):
         return cart_fragment(request, cart, error=QUANTITY_ERROR, status=400)
 
     if product_id in cart:
-        cart[product_id] = cart_line(Product.objects.get(id=product_id), qty)
+        product = Product.objects.get(id=product_id)
+        try:
+            check_quantity(product, qty)
+        except OutOfStock as error:
+            return cart_fragment(request, cart, error=str(error), status=409)
+        cart[product_id] = cart_line(product, qty)
         request.session[CART_SESSION_KEY] = cart
     return cart_fragment(request, cart)
 
@@ -275,6 +286,15 @@ def update_cart(request):
 def save_checkout_info(request):
     cart = refresh_cart(request)
     if request.method == "POST" and cart:
+        # Stock may have changed since the items were added
+        products = Product.objects.in_bulk([int(product_id) for product_id in cart])
+        for product_id, item in cart.items():
+            try:
+                check_quantity(products[int(product_id)], item["qty"])
+            except OutOfStock as error:
+                messages.error(request, str(error))
+                return redirect("core:cart")
+
         full_name = request.POST.get("full_name")
         email = request.POST.get("email")
         mobile = request.POST.get("mobile")
@@ -333,6 +353,7 @@ def save_checkout_info(request):
             for p_id, item in cart.items():
                 cart_order_products = CartOrderProducts.objects.create(
                     order=order,
+                    product_id=int(p_id),
                     invoice_no="INVOICE_NO-" + str(order.id), # INVOICE_NO-5,
                     item=item['title'],
                     image=item['image'],
@@ -435,12 +456,20 @@ def mock_payment(request, oid):
         return redirect("core:checkout", order.oid)
 
     if not order.paid_status:
-        payment = pay_order(order)
-        if payment["status"] != "succeeded":
-            return redirect("core:payment-failed")
-        order.paid_status = True
-        order.stripe_payment_intent = payment["id"]
-        order.save()
+        # Stock comes off only when the payment goes through; both happen or neither does
+        with transaction.atomic():
+            try:
+                deduct_for_order(order)
+            except OutOfStock as error:
+                messages.error(request, str(error))
+                return redirect("core:cart")
+            payment = pay_order(order)
+            if payment["status"] != "succeeded":
+                transaction.set_rollback(True)
+                return redirect("core:payment-failed")
+            order.paid_status = True
+            order.stripe_payment_intent = payment["id"]
+            order.save()
         request.session.pop("cart_data_obj", None)
 
     return redirect("core:payment-completed", order.oid)

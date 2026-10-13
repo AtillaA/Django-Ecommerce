@@ -100,6 +100,13 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 - The session cart (`core/cart.py`) trusts only product IDs and quantities: titles, prices and
   images are re-read from the database on every cart read (`refresh_cart`), so the browser can't
   set prices and totals always match the product pages. Quantities are whole numbers >= 1.
+- Stock: `Product.available_stock` (`stock_count`, or 0 when `in_stock` is off) is the one read
+  point; `core/stock.py` checks it on add/update to cart and at checkout, and deducts only when
+  an order is paid (`deduct_for_order`, conditional UPDATEs in one transaction with the payment),
+  so abandoned carts hold nothing. Long-term plan: an ERP will own stock; swap the read point and
+  report sales from `core/stock.py`. Only the mock payment path deducts; the Stripe path
+  (`payment_completed_view`) must call `deduct_for_order` when payments are reworked.
+  `CartOrderProducts.product` links order lines to products (older lines have none).
 - Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
   `DEBUG` off). Checkout then shows one "test payment" button; `core/payments.py` sends the
   order's customer details and amount to a fake provider that always approves, the order is
@@ -136,8 +143,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- Stock is never checked when adding to cart or ordering, and orders don't reduce it
-  (`in_stock`/`stock_count` unused in views).
 - `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
   templates show it as the discount ("-83% Off").
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
@@ -237,6 +242,9 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
   and so does another user's order.
+- Stock: products show "N in stock" or "Out of stock" (no Add button); carts can't exceed stock
+  (add, update, checkout); paying takes the quantities off stock, all or nothing, and a payment
+  is refused if stock ran out meanwhile.
 - Checkout with the mock payment (`core/tests.py` covers it). With `PAYMENT_MOCK=False`,
   `create_checkout_session` (Stripe) needs POST, sign-in, CSRF and the user's own unpaid order,
   and never resets `paid_status` (tested with Stripe mocked; no real Stripe run yet).
