@@ -688,8 +688,8 @@ class ShopSortingTests(TestCase):
         self.assertEqual(self.titles(sort="rating"), ["Cheap", "Pricey", "Middle"])
 
     def test_show_and_pagination(self):
-        for n in range(60):
-            Product.objects.create(title=f"Bulk {n}", price="2.00", product_status="published")
+        for n in range(60):  # explicit SKUs: generated ones have only 10,000 values and can collide
+            Product.objects.create(title=f"Bulk {n}", sku=f"bulk{n}", price="2.00", product_status="published")
         page = self.client.get(reverse("core:product-list"))
         self.assertEqual(len(page.context["products"]), 50)
         self.assertContains(page, "We found <strong class=\"text-brand\">63</strong>")

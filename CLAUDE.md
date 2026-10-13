@@ -143,6 +143,9 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
+- `Product.sku` is generated as "sku" + 4 random digits and must be unique: only 10,000 values, so
+  saving a new product fails at random (IntegrityError) with a chance of (existing products) /
+  10,000, about 1 in 20 at 500 products.
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
   order confirmations.
 
