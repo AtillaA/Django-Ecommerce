@@ -104,3 +104,25 @@ class SignInMessageTests(TestCase):
     def test_unknown_email(self):
         response = self.sign_in("nobody@example.com", "Right-pass-123")
         self.assertEqual(message_texts(response), ["User with nobody@example.com does not exist"])
+
+
+class NextRedirectTests(TestCase):
+    def setUp(self):
+        User.objects.create_user(username="buyer", email="buyer@example.com", password="Right-pass-123")
+
+    def sign_in(self, next_url):
+        return self.client.post(f"{reverse('userauths:sign-in')}?next={next_url}",
+                                {"email": "buyer@example.com", "password": "Right-pass-123"})
+
+    def test_follows_next_on_this_site(self):
+        self.assertRedirects(self.sign_in("/products/"), "/products/")
+
+    def test_ignores_next_to_other_sites(self):
+        for bad in ["https://evil.example/", "//evil.example/", "http:evil.example", "javascript:alert(1)"]:
+            self.client.logout()
+            self.assertRedirects(self.sign_in(bad), reverse("core:index"), msg_prefix=bad)
+
+    def test_sign_up_ignores_next_to_other_sites(self):
+        response = self.client.post(f"{reverse('userauths:sign-up')}?next=https://evil.example/", {
+            "username": "new", "email": "new@example.com", "password1": "Sign-up-pass-123", "password2": "Sign-up-pass-123"})
+        self.assertRedirects(response, reverse("core:index"))

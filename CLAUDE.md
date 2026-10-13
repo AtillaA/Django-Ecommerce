@@ -185,7 +185,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
 - Store-dashboard "Change Password" inputs are `type="text"` (passwords show while typing), and
   it doesn't apply the password rules customers get (`PasswordChangeForm`).
-- Login/sign-up redirect to an unvalidated `next` parameter.
 - Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
   server log. Most features have no tests.
 
@@ -193,7 +192,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 Confirmed in the October 2026 audit (browser and test client, with `seed_test_data`):
 
-- Sign-up and sign-in (a wrong password says "Wrong password"); sign-out shows "Signed-out successfully" on the home page.
+- Sign-up and sign-in (a wrong password says "Wrong password"; `?next=` is followed only within
+  this site); sign-out shows "Signed-out successfully" on the home page.
 - Signed-out visitors are sent to sign in (and back) instead of getting errors: order and profile
   pages redirect; wishlist, review and address actions answer 401 (`ajax_login_required`) and
   `function.js` redirects.
