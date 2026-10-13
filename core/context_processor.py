@@ -3,6 +3,8 @@ from core.models import Product, Category, Vendor, CartOrder, ProductImages, Pro
 from django.db.models import Min, Max
 from django.contrib import messages
 
+from core.cart import cart_total, read_cart
+
 def default(request):
     categories = Category.objects.all()
     vendors = Vendor.objects.all()
@@ -26,7 +28,11 @@ def default(request):
         addresses = Address.objects.filter(user=request.user)
         address = addresses.filter(status=True).first() or addresses.order_by("-id").first()
 
+    mini_cart = read_cart(request)  # the header's cart preview
+
     return {
+        'mini_cart': mini_cart,
+        'mini_cart_total': cart_total(mini_cart),
         'categories':categories,
         'wishlist':wishlist,
         'address':address,

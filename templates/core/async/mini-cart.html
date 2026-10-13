@@ -1,0 +1,38 @@
+{# Header cart preview (hover over "Cart"): included twice in partials/base.html and returned by the cart AJAX views. #}
+{% if mini_cart %}
+<ul>
+    {% for product_id, item in mini_cart.items %}
+    <li>
+        <div class="shopping-cart-img">
+            <a href="{% url 'core:product-detail' item.pid %}"><img alt="{{ item.title }}" src="{{ item.image }}" /></a>
+        </div>
+        <div class="shopping-cart-title">
+            <h4><a href="{% url 'core:product-detail' item.pid %}">{{ item.title|truncatechars:30 }}</a></h4>
+            <h4><span>{{ item.qty }} × </span>${{ item.price }}</h4>
+        </div>
+        <div class="shopping-cart-delete">
+            <a class="delete-product" data-product="{{ product_id }}" title="Remove"><i class="fi-rs-cross-small"></i></a>
+        </div>
+    </li>
+    {% endfor %}
+</ul>
+<div class="shopping-cart-footer">
+    <div class="shopping-cart-total">
+        <h4>Total <span>${{ mini_cart_total|floatformat:2 }}</span></h4>
+    </div>
+    <div class="shopping-cart-button">
+        <a href="{% url 'core:cart' %}" class="outline">View cart</a>
+        <form action="{% url 'core:save_checkout_info' %}" method="POST" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm">Checkout</button>
+        </form>
+    </div>
+</div>
+{% else %}
+<p class="mb-15">Your cart is empty.</p>
+<div class="shopping-cart-footer">
+    <div class="shopping-cart-button">
+        <a href="{% url 'core:product-list' %}" class="outline">Shop now</a>
+    </div>
+</div>
+{% endif %}

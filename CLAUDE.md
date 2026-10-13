@@ -112,6 +112,10 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   order's customer details and amount to a fake provider that always approves, the order is
   marked paid (reference `mock_…` stored in `stripe_payment_intent`) and the cart is emptied.
   The site never collects card details; a real provider must take them on its own hosted page.
+- Checkout's delivery details live on the order (`ORDER_DETAILS` in `core/views.py`): the inputs in
+  the checkout page's left column belong to the pay form on the right via `form="order-details"`,
+  and `save_order_details` stores them in `mock_payment`, `create_checkout_session` (Stripe sends
+  them as FormData) and the coupon form. The PayPal button doesn't save them.
 - With `PAYMENT_MOCK=False` the Stripe/PayPal buttons return; they need `STRIPE_*`,
   `PAYPAL_RECEIVER_EMAIL` and `PAYPAL_TEST` in `.env`.
 - `ecomprj/apps.py` pins django-paypal's IPN app to `AutoField`. Without it, `makemigrations`
@@ -152,25 +156,22 @@ Found in the template and confirmed against the running app (October 2026 audit,
 ### Minor
 
 - Dead-end routes, labelled for the dead-ends pass. Theme links are relative, so they 404 under
-  whatever page they sit on (e.g. `/product/test-01/shop-compare.html`). Counts skip commented-out
-  markup and the store dashboard (October 2026):
+  whatever page they sit on (e.g. `/product/test-01/shop-compare.html`). Links whose page exists in
+  the app were rerouted (breadcrumbs, product cards, product page, header/footer); what is left
+  points at pages that don't exist. Counts skip commented-out markup and the store dashboard:
 
   | Dead link | Links | Where / what | Likely fix |
   |---|---|---|---|
-  | `shop-product-right.html` | 191 | Demo product cards in `core/index.html` (152); sidebar demo products on vendor, shop, search, tag pages | Remove with the demo blocks |
-  | `shop-grid-right.html` | 117 | Category labels on product cards (incl. `async/product-list.html`); sidebars of info pages and the product page | `core:category-product-list` / `core:product-list` |
-  | `vendor-details-1.html` | 81 | "By (vendor)" on demo product cards | Remove with the demo blocks |
-  | `vendor-details-2.html` | 2 | Vendor name on the product page | `core:vendor-detail` |
+  | `shop-product-right.html` | 185 | Demo product cards in `core/index.html`; demo sidebar products on vendor, shop, search, tag pages | Remove with the demo blocks |
+  | `shop-grid-right.html` | 112 | Category labels on demo cards; demo category sidebars of info pages and the product page | Remove with the demo blocks |
+  | `vendor-details-1.html` | 80 | "By (vendor)" on demo product cards | Remove with the demo blocks |
   | `shop-cart.html` | 81 | "Add" on demo product cards | Remove with the demo blocks |
   | `shop-compare.html` | 62 | "Compare" icons | Remove (no compare feature) or build one |
   | `shop-wishlist.html` | 61 | "Add To Wishlist" icons on demo cards | Remove with the demo blocks |
   | `shop-product-detail.html` | 15 | Demo products in info-page and product-page sidebars | Remove |
-  | `index.html` | 20 | Breadcrumb "Home" on 20 pages | `core:index` |
-  | `page-login.html` | 3 | "Logout" in the dashboard and profile-edit menus; "Log in instead!" on order detail | `userauths:sign-out` / remove |
-  | `page-register.html` | 1 | "Register now" on the product page | `userauths:sign-up` |
-  | `page-contact.html` | 1 | "contact us" on the terms page | `core:contact` |
+  | `page-login.html` | 1 | "Log in instead!" in an unreachable leftover tab on order detail | Remove |
   | `/cdn-cgi/l/email-protection` | 1 | Footer email, shows "[email protected]" (Cloudflare leftover) | Real `mailto:` |
-  | `#` | 225 | 97 in `partials/base.html`: every "Mega menu" entry, language/currency switchers, footer columns (Delivery Information, Support Center, Careers, ...), social icons; the rest are placeholders in page templates (vendor/about demo links, pagination) | Link real pages or remove |
+  | `#` | 192 | 78 in `partials/base.html`: "Mega menu" entries, language/currency switchers, Delivery Information, Support Center, Careers, Compare products, Forgot/Reset password, 404 Page, social icons ("Category"/"Pages" are menu toggles); the rest are demo placeholders and the unbuilt sort dropdowns on category/search/tag/vendor pages | Link real pages or remove |
 
   "Deals" in the main menu opens the full shop (no deals page).
 - Most of `core/index.html` is fixed demo content: only the first "Popular Products" tab and
@@ -185,8 +186,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - The product page "Delivery" box labels the default address "Verified Address" and others
   "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
-  `partials/base.html`), "Nestify" default vendor name, hardcoded breadcrumb and "(32 reviews)"
-  on `core/product-detail.html`, fallback avatars hotlinked from external sites.
+  `partials/base.html`), "Nestify" default vendor name, hardcoded "(32 reviews)" on
+  `core/product-detail.html`, fallback avatars hotlinked from external sites.
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   relative `favicon.svg` and `slider-range.css` paths (404 on most pages),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
@@ -198,8 +199,7 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
-- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
-  server log. Most features have no tests.
+- Debug `print()` calls throughout the views. Most features have no tests.
 
 ## Tested and Working
 
@@ -211,6 +211,10 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   pages redirect; wishlist, review and address actions answer 401 (`ajax_login_required`) and
   `function.js` redirects.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
+- Links to pages that exist: breadcrumb "Home" everywhere, the product page breadcrumb (real
+  category and title), product titles/categories/vendors on product cards, and header/footer
+  links (About, Contact, Privacy, Terms, Purchase Guide, Cart, Wishlist, sign-in/up, vendors;
+  "Track My Order" opens the dashboard's Orders tab).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
 - Store-dashboard revenue: "Revenue" sums paid orders; "Monthly Earning" is this month of this
@@ -227,8 +231,14 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   respected); adding an item already in the cart adds to its quantity; quantities below 1,
   empty or non-numeric are refused (browser and server) and the old value is restored; line
   subtotals and totals are exact and use database prices.
-- Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
-  anything typed in the checkout details; "Proceed To CheckOut" then works.
+- Header cart preview (hover over "Cart", desktop and mobile): items with quantity, price and a
+  remove "×", the total, "View cart" and "Checkout"; it refreshes without a reload when the cart
+  changes (`core/async/mini-cart.html`, data from `read_cart` in the context processor).
+- Cart page: removing lines and changing quantities redraw it in place (no reload); "Proceed To
+  CheckOut" creates the order and opens the checkout page.
+- Checkout page: items, then "Delivery details" (prefilled from the profile, email and default
+  address) on the left; summary, coupon and pay button on the right. Paying saves the details
+  and refuses missing required ones with a message (entries kept); applying a coupon keeps them.
 - Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
   else's item by ID gives 404.
 - Reviews when signed in.

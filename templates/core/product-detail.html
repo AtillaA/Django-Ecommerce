@@ -12,8 +12,8 @@
         <div class="page-header breadcrumb-wrap">
             <div class="container">
                 <div class="breadcrumb">
-                    <a href="index.html" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
-                    <span></span> <a href="shop-grid-right.html">Vegetables & tubers</a> <span></span> Seeds of Change Organic
+                    <a href="{% url 'core:index' %}" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
+                    {% if p.category %}<span></span> <a href="{% url 'core:category-product-list' p.category.cid %}">{{ p.category.title }}</a>{% endif %} <span></span> {{ p.title }}
                 </div>
             </div>
         </div>
@@ -231,7 +231,7 @@
                                                     <img src="{{p.vendor.image.url}}" alt="" />
                                                     <div class="vendor-name ml-15">
                                                         <h6>
-                                                            <a href="vendor-details-2.html">{{p.vendor.title}}</a>
+                                                            <a href="{% url 'core:vendor-detail' p.vendor.vid %}">{{p.vendor.title}}</a>
                                                         </h6>
                                                         <div class="product-rate-cover text-end">
                                                             <div class="product-rate d-inline-block">
@@ -420,7 +420,7 @@
                                                         <div class="product-category">
                                                             <a href="{% url 'core:product-detail' p.pid %}">{{ p.category.title }}</a>
                                                         </div>
-                                                        <h2><a href="shop-product-right.html">{{ p.title }}</a></h2>
+                                                        <h2><a href="{% url 'core:product-detail' p.pid %}">{{ p.title }}</a></h2>
                                                         <div class="product-rate-cover">
                                                             <i class="fas fa-star text-warning"></i>
                                                             <span class="font-small ml-5 text-muted"> ({{ p.reviews.all.count }})</span>
@@ -511,7 +511,7 @@
                                     <img src="{{p.vendor.image.url}}" alt="" />
                                     <div class="vendor-name ml-15">
                                         <h6>
-                                            <a href="vendor-details-2.html">{{p.vendor.title}}</a>
+                                            <a href="{% url 'core:vendor-detail' p.vendor.vid %}">{{p.vendor.title}}</a>
                                         </h6>
                                         <div class="product-rate-cover text-end">
                                             <div class="product-rate d-inline-block">
@@ -543,7 +543,7 @@
                                 <ul>
                                     <li class="hr"><span></span></li>
                                 </ul>
-                                <p>Become a Vendor? <a href="page-register.html"> Register now</a></p>
+                                <p>Become a Vendor? <a href="{% url 'userauths:sign-up' %}"> Register now</a></p>
                             </div>
                             <div class="sidebar-widget widget-category-2 mb-30">
                                 <h5 class="section-title style-1 mb-30">Category</h5>

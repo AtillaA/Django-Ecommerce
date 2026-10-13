@@ -92,7 +92,7 @@
                                             </div>
                                             <div class="product-content-wrap">
                                                 <div class="product-category">
-                                                    <a href="shop-grid-right.html">{{ p.category.title }}</a>
+                                                    {% if p.category %}<a href="{% url 'core:category-product-list' p.category.cid %}">{{ p.category.title }}</a>{% endif %}
                                                 </div>
                                                 <h2><a href="{% url 'core:product-detail' p.pid %}">{{ p.title }}</a></h2>
                                                 <div class="product-rate-cover">

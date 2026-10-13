@@ -6,7 +6,7 @@
         <div class="page-header breadcrumb-wrap">
             <div class="container">
                 <div class="breadcrumb">
-                    <a href="index.html" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
+                    <a href="{% url 'core:index' %}" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
                     <span></span> Shop <span></span> Checkout
                 </div>
             </div>
@@ -40,6 +40,18 @@
                             </div>
                             </div>
                         {% endfor %}
+                    </div>
+                    <div class="border p-md-4 mt-30 mb-50">
+                        <h4 class="mb-30">Delivery details</h4>
+                        <div class="row">
+                            {% for field, label, required, value in details %}
+                            <div class="form-group col-lg-6">
+                                <label for="detail-{{ field }}">{{ label }}{% if required %} *{% endif %}</label>
+                                {# form="order-details" ties the input to the pay form on the right #}
+                                <input type="{% if field == 'email' %}email{% else %}text{% endif %}" id="detail-{{ field }}" name="{{ field }}" value="{{ value }}" form="order-details"{% if required %} required{% endif %}>
+                            </div>
+                            {% endfor %}
+                        </div>
                     </div>
                 </div>
                 <div class="col-lg-5">
@@ -79,12 +91,13 @@
                     </div>
 
                     {% if payment_mock %}
-                    <form method="POST" action="{% url 'core:mock-payment' order.oid %}">
+                    <form method="POST" action="{% url 'core:mock-payment' order.oid %}" id="order-details">
                         {% csrf_token %}
                         <button type="submit" class="btn w-100">Pay ${{ order.price }} (test payment)</button>
                     </form>
                     <p class="font-sm text-muted mt-10">Test mode: payments are simulated and always succeed. No card details are asked for and nothing is charged.</p>
                     {% else %}
+                    <form id="order-details" onsubmit="return false"></form>
                     <button type="button" class="btn w-100" id="checkout-button" style="background-color: blueviolet;">Pay With Stripe (Credit or Debit Card)</button>
                     <div id="paypal-button-container" class="mt-3"></div>
                     {% endif %}
@@ -92,6 +105,20 @@
             </div>
         </div>
     </main>
+
+    <script>
+        // Applying a coupon reloads the page: send the typed delivery details along so they are kept
+        document.querySelector("form.apply-coupon").addEventListener("submit", function () {
+            const couponForm = this
+            document.querySelectorAll('[form="order-details"]').forEach(function (input) {
+                const copy = document.createElement("input")
+                copy.type = "hidden"
+                copy.name = input.name
+                copy.value = input.value
+                couponForm.appendChild(copy)
+            })
+        })
+    </script>
 
     {% if not payment_mock %}
     <script src="https://www.paypal.com/sdk/js?client-id=test&currency=USD"></script>
@@ -138,7 +165,7 @@
             fetch("/api/create_checkout_session/{{order.oid}}/", {
                 method: "POST",
                 headers: { "X-CSRFToken": "{{ csrf_token }}" },
-                body: JSON.stringify({ email: email }),
+                body: new FormData(document.getElementById("order-details")),
             })
                 .then(function (response) {
                     console.log(response);
@@ -146,6 +173,11 @@
                     return response.json();
                 })
                 .then(function (session) {
+                    if (session.error) {
+                        alert(session.error);
+                        checkoutButton.innerHTML = "Pay With Stripe (Credit or Debit Card)";
+                        return {};
+                    }
                     return stripe.redirectToCheckout({ sessionId: session.sessionId });
                 })
                 .then(function (result) {

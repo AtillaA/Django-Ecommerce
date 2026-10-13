@@ -6,6 +6,7 @@ from io import StringIO
 from pathlib import Path
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -18,6 +19,11 @@ from userauths.models import User
 
 # Smallest valid GIF, for image uploads in tests.
 GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+
+# Delivery details as entered on the checkout page
+DETAILS = {"full_name": "Buyer B", "email": "buyer@example.com", "phone": "555", "address": "1 Main St",
+           "city": "Town", "state": "", "country": "Land"}
+
 
 def cart_of(**quantities):
     """A session cart holding the given quantities of real products, by title."""
@@ -66,7 +72,7 @@ class MockPaymentTests(TestCase):
 
     def test_pay_marks_order_paid_and_empties_cart(self):
         self.set_cart(cart_of(**{"Test Apple": 2}))
-        response = self.client.post(self.pay_url)
+        response = self.client.post(self.pay_url, DETAILS)
 
         self.assertRedirects(response, reverse("core:payment-completed", args=[self.order.oid]))
         self.assert_paid(True)
@@ -218,7 +224,7 @@ class CartRedrawTests(TestCase):
     def assert_full_cart(self, html):
         self.assertIn('action="/save_checkout_info/"', html)
         self.assertIn("csrfmiddlewaretoken", html)
-        self.assertIn('name="full_name" value="Buyer"', html)
+        self.assertNotIn("Bio Data", html)  # delivery details are asked for on the checkout page
         self.assertIn("Proceed To CheckOut", html)
 
     def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
@@ -460,7 +466,7 @@ class StripeCheckoutSessionTests(TestCase):
         self.addCleanup(patcher.stop)
 
     def test_own_order_gets_a_session_without_touching_paid_status(self):
-        response = self.client.post(self.url)
+        response = self.client.post(self.url, DETAILS)
         self.assertEqual(response.json(), {"sessionId": "cs_test_123"})
         self.order.refresh_from_db()
         self.assertEqual(self.order.stripe_payment_intent, "cs_test_123")
@@ -561,7 +567,7 @@ class StockTests(TestCase):
         return CartOrder.objects.filter(user=user or self.user).latest("id")
 
     def pay(self, order, client=None):
-        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]))
+        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
 
     def stock(self):
         self.apple.refresh_from_db()
@@ -720,8 +726,124 @@ class PayOnceTests(TestCase):
         self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
         order = CartOrder.objects.get(user=user)
         with mock.patch("core.views.pay_order", wraps=pay_order) as charge:
-            self.client.post(reverse("core:mock-payment", args=[order.oid]))
-            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+            self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
+            self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
         self.assertEqual(charge.call_count, 1)
         apple.refresh_from_db()
         self.assertEqual(apple.stock_count, 3)
+
+
+class RealLinksTests(TestCase):
+    """Theme links to pages that exist in the app must use the app's URLs (not theme .html files)."""
+
+    def setUp(self):
+        self.category = Category.objects.create(title="Snacks")
+        self.product = Product.objects.create(title="Crunchy Bar", category=self.category, featured=True, product_status="published")
+        Product.objects.create(title="Other Bar", category=self.category, product_status="published")
+        self.product_url = reverse("core:product-detail", args=[self.product.pid])
+        self.category_url = reverse("core:category-product-list", args=[self.category.cid])
+        self.vendor_url = reverse("core:vendor-detail", args=[self.product.vendor.vid])
+
+    def test_breadcrumb_home_is_the_home_page(self):
+        for url in [reverse("core:product-list"), self.product_url, reverse("core:contact"), reverse("userauths:sign-in")]:
+            page = self.client.get(url)
+            self.assertNotContains(page, 'href="index.html"', msg_prefix=url)
+            self.assertContains(page, '<a href="/" rel="nofollow">', msg_prefix=url)
+
+    def test_product_cards_link_to_real_pages(self):
+        for url in [reverse("core:product-list"), self.category_url, reverse("core:search") + "?q=Bar", self.vendor_url]:
+            page = self.client.get(url)
+            self.assertContains(page, f'href="{self.product_url}">Crunchy Bar</a>', msg_prefix=url)
+
+    def test_product_page_breadcrumb_and_vendor_links(self):
+        other = Product.objects.get(title="Other Bar")
+        page = self.client.get(reverse("core:product-detail", args=[other.pid]))
+        self.assertContains(page, f'<a href="{self.category_url}">Snacks</a>')
+        self.assertContains(page, f'href="{self.product_url}">Crunchy Bar</a>')  # related products
+        self.assertContains(page, f'href="{self.vendor_url}"')
+        self.assertNotContains(page, "vendor-details-2.html")
+        self.assertNotContains(page, "Seeds of Change Organic")
+
+    def test_header_and_footer_links(self):
+        page = self.client.get(reverse("core:index")).content.decode()
+        for name in ["core:about_us", "core:contact", "core:privacy_policy", "core:terms_of_service", "core:purchase_guide",
+                     "core:cart", "core:wishlist", "userauths:sign-in", "userauths:sign-up", "core:vendor-list"]:
+            self.assertIn(f'href="{reverse(name)}"', page, name)
+
+
+class CartPreviewTests(TestCase):
+    def setUp(self):
+        self.apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+
+    def test_header_lists_cart_items_and_total(self):
+        self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 3})
+        page = self.client.get(reverse("core:product-list")).content.decode()
+        preview = page[page.index('class="cart-dropdown-wrap cart-dropdown-hm2 mini-cart"'):]
+        self.assertIn("Apple", preview)
+        self.assertIn("<span>3 × </span>$1.50", preview)
+        self.assertIn("Total <span>$4.50</span>", preview)
+        self.assertEqual(page.count('class="cart-dropdown-wrap cart-dropdown-hm2 mini-cart"'), 2)  # desktop and mobile
+
+    def test_empty_cart(self):
+        self.assertContains(self.client.get(reverse("core:index")), "Your cart is empty.")
+
+    def test_cart_actions_return_the_refreshed_preview(self):
+        added = self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 2}).json()
+        self.assertIn("<span>2 × </span>$1.50", added["mini_cart"])
+        updated = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": 5}).json()
+        self.assertIn("<span>5 × </span>$1.50", updated["mini_cart"])
+        removed = self.client.get(reverse("core:delete-from-cart"), {"id": self.apple.id}).json()
+        self.assertIn("Your cart is empty.", removed["mini_cart"])
+
+
+@override_settings(PAYMENT_MOCK=True)
+class CheckoutDetailsTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.user.profile.full_name, self.user.profile.phone = "Buyer Profile", "555-0101"
+        self.user.profile.save()
+        Address.objects.create(user=self.user, address="9 Default Road", mobile="555-0199", status=True)
+        self.client.force_login(self.user)
+        apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": apple.id, "qty": 1})
+
+    def proceed(self):
+        self.client.post(reverse("core:save_checkout_info"))
+        return CartOrder.objects.get(user=self.user)
+
+    def test_cart_page_no_longer_asks_for_details(self):
+        page = self.client.get(reverse("core:cart"))
+        self.assertNotContains(page, "Bio Data")
+        self.assertNotContains(page, 'name="address"')
+        self.assertContains(page, "Proceed To CheckOut")
+
+    def test_checkout_page_asks_for_details_prefilled_from_the_account(self):
+        order = self.proceed()
+        page = self.client.get(reverse("core:checkout", args=[order.oid])).content.decode()
+        self.assertIn("Delivery details", page)
+        for field, value in [("full_name", "Buyer Profile"), ("email", "buyer@example.com"),
+                             ("phone", "555-0101"), ("address", "9 Default Road")]:
+            self.assertRegex(page, rf'name="{field}" value="{value}" form="order-details"')
+        self.assertIn('id="order-details"', page)
+
+    def test_missing_details_block_payment(self):
+        order = self.proceed()
+        response = self.client.post(reverse("core:mock-payment", args=[order.oid]), {**DETAILS, "city": "", "country": " "})
+        self.assertRedirects(response, reverse("core:checkout", args=[order.oid]), fetch_redirect_response=False)
+        self.assertIn("Please fill in: City, Country.", [str(m) for m in get_messages(response.wsgi_request)])
+        order.refresh_from_db()
+        self.assertFalse(order.paid_status)
+        self.assertEqual(order.address, "1 Main St")  # what was typed is kept for the next try
+
+    def test_paying_saves_the_details(self):
+        order = self.proceed()
+        self.client.post(reverse("core:mock-payment", args=[order.oid]), DETAILS)
+        order.refresh_from_db()
+        self.assertTrue(order.paid_status)
+        self.assertEqual((order.full_name, order.city, order.country), ("Buyer B", "Town", "Land"))
+
+    def test_applying_a_coupon_keeps_typed_details(self):
+        order = self.proceed()
+        self.client.post(reverse("core:checkout", args=[order.oid]), {"code": "NOPE", **DETAILS, "city": "Typed City"})
+        order.refresh_from_db()
+        self.assertEqual(order.city, "Typed City")
