@@ -87,3 +87,20 @@ class StoreDashboardPasswordTests(TestCase):
         self.assertRedirects(response, reverse("useradmin:settings"))
         self.assertIn("Password changed successfully", message_texts(response))
         self.assertEqual(self.client.get(reverse("useradmin:dashboard")).status_code, 200)  # still signed in
+
+
+class SignInMessageTests(TestCase):
+    def setUp(self):
+        User.objects.create_user(username="buyer", email="buyer@example.com", password="Right-pass-123")
+
+    def sign_in(self, email, password):
+        return self.client.post(reverse("userauths:sign-in"), {"email": email, "password": password})
+
+    def test_wrong_password(self):
+        response = self.sign_in("buyer@example.com", "Wrong-pass-123")
+        self.assertEqual(message_texts(response), ["Wrong password"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_unknown_email(self):
+        response = self.sign_in("nobody@example.com", "Right-pass-123")
+        self.assertEqual(message_texts(response), ["User with nobody@example.com does not exist"])

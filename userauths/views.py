@@ -55,7 +55,7 @@ def login_view(request):
                 next_url = request.GET.get("next", 'core:index')
                 return redirect(next_url)
             else:
-                messages.warning(request, "User Does Not Exist, create an account.")
+                messages.warning(request, "Wrong password")
     
         except:
             messages.warning(request, f"User with {email} does not exist")

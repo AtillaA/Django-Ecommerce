@@ -143,7 +143,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   (`in_stock`/`stock_count` unused in views).
 - `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
   templates show it as the discount ("-83% Off").
-- A wrong password says "User Does Not Exist, create an account." (`login_view`).
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
   order confirmations.
 
@@ -194,7 +193,7 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 Confirmed in the October 2026 audit (browser and test client, with `seed_test_data`):
 
-- Sign-up and sign-in; sign-out shows "Signed-out successfully" on the home page.
+- Sign-up and sign-in (a wrong password says "Wrong password"); sign-out shows "Signed-out successfully" on the home page.
 - Signed-out visitors are sent to sign in (and back) instead of getting errors: order and profile
   pages redirect; wishlist, review and address actions answer 401 (`ajax_login_required`) and
   `function.js` redirects.
