@@ -11,21 +11,22 @@ from userauths.models import Profile, User
 from useradmin.forms import AddProductForm
 from useradmin.decorators import admin_required
 
-import datetime
+from django.utils import timezone
 
 
 
 @admin_required
 def dashboard(request):
-    revenue = CartOrder.objects.aggregate(price=Sum("price"))
+    paid_orders = CartOrder.objects.filter(paid_status=True)
+    revenue = paid_orders.aggregate(price=Sum("price"))
     total_orders_count = CartOrder.objects.all()
     all_products = Product.objects.all()
     all_categories = Category.objects.all()
     new_customers = User.objects.all().order_by("-id")[:6]
     latest_orders = CartOrder.objects.all()
 
-    this_month = datetime.datetime.now().month
-    monthly_revenue = CartOrder.objects.filter(order_date__month=this_month).aggregate(price=Sum("price"))
+    now = timezone.now()
+    monthly_revenue = paid_orders.filter(order_date__year=now.year, order_date__month=now.month).aggregate(price=Sum("price"))
 
     
     context = {

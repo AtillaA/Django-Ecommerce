@@ -48,3 +48,22 @@ class ProductTagTests(StoreDashboardTestCase):
     def test_tags_are_optional(self):
         self.client.post(reverse("useradmin:dashboard-add-products"), self.product_data(tags=""))
         self.assertEqual(list(Product.objects.get(title="Muffin").tags.names()), [])
+
+
+class RevenueTests(StoreDashboardTestCase):
+    def test_revenue_counts_paid_orders_only_and_this_month_of_this_year(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from core.models import CartOrder
+
+        now = timezone.now()
+        CartOrder.objects.create(user=self.boss, price="10.00", paid_status=True)
+        CartOrder.objects.create(user=self.boss, price="99.00", paid_status=False)
+        last_year = CartOrder.objects.create(user=self.boss, price="5.00", paid_status=True)
+        CartOrder.objects.filter(pk=last_year.pk).update(order_date=now - timedelta(days=366))
+
+        context = self.client.get(reverse("useradmin:dashboard")).context
+        self.assertEqual(context["revenue"]["price"], 15)          # both paid orders
+        self.assertEqual(context["monthly_revenue"]["price"], 10)  # only this month's paid order

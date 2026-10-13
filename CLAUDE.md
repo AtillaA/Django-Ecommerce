@@ -130,7 +130,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Store dashboard
 
-- "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
 
 ### Major
 
@@ -214,6 +213,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
+- Store-dashboard revenue: "Revenue" sums paid orders; "Monthly Earning" is this month of this
+  year, paid only.
 - Store-dashboard product tags: "breakfast, sweet" saves two tags (taggit `TagField`), shown back
   the same way when editing; tags are optional.
 - Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
