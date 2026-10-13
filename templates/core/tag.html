@@ -9,7 +9,7 @@
                         <div class="col-xl-3">
                             <h1 class="mb-15">#{{tag.name}}</h1>
                             <div class="breadcrumb">
-                                <a href="index.html" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
+                                <a href="{% url 'core:index' %}" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
                                 <span></span> Shop <span></span> {{tag.name}}
                             </div>
                         </div>
@@ -92,7 +92,7 @@
                                     <div class="product-category">
                                         <a href="{% url 'core:product-detail' p.pid %}">{{ p.category.title }}</a>
                                     </div>
-                                    <h2><a href="shop-product-right.html">{{ p.title }}</a></h2>
+                                    <h2><a href="{% url 'core:product-detail' p.pid %}">{{ p.title }}</a></h2>
                                     <div class="product-rate-cover">
                                         <i class="fas fa-star text-warning"></i>
                                         <span class="font-small ml-5 text-muted"> ({{ p.reviews.all.count }})</span>

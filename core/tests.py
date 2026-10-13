@@ -725,3 +725,41 @@ class PayOnceTests(TestCase):
         self.assertEqual(charge.call_count, 1)
         apple.refresh_from_db()
         self.assertEqual(apple.stock_count, 3)
+
+
+class RealLinksTests(TestCase):
+    """Theme links to pages that exist in the app must use the app's URLs (not theme .html files)."""
+
+    def setUp(self):
+        self.category = Category.objects.create(title="Snacks")
+        self.product = Product.objects.create(title="Crunchy Bar", category=self.category, featured=True, product_status="published")
+        Product.objects.create(title="Other Bar", category=self.category, product_status="published")
+        self.product_url = reverse("core:product-detail", args=[self.product.pid])
+        self.category_url = reverse("core:category-product-list", args=[self.category.cid])
+        self.vendor_url = reverse("core:vendor-detail", args=[self.product.vendor.vid])
+
+    def test_breadcrumb_home_is_the_home_page(self):
+        for url in [reverse("core:product-list"), self.product_url, reverse("core:contact"), reverse("userauths:sign-in")]:
+            page = self.client.get(url)
+            self.assertNotContains(page, 'href="index.html"', msg_prefix=url)
+            self.assertContains(page, '<a href="/" rel="nofollow">', msg_prefix=url)
+
+    def test_product_cards_link_to_real_pages(self):
+        for url in [reverse("core:product-list"), self.category_url, reverse("core:search") + "?q=Bar", self.vendor_url]:
+            page = self.client.get(url)
+            self.assertContains(page, f'href="{self.product_url}">Crunchy Bar</a>', msg_prefix=url)
+
+    def test_product_page_breadcrumb_and_vendor_links(self):
+        other = Product.objects.get(title="Other Bar")
+        page = self.client.get(reverse("core:product-detail", args=[other.pid]))
+        self.assertContains(page, f'<a href="{self.category_url}">Snacks</a>')
+        self.assertContains(page, f'href="{self.product_url}">Crunchy Bar</a>')  # related products
+        self.assertContains(page, f'href="{self.vendor_url}"')
+        self.assertNotContains(page, "vendor-details-2.html")
+        self.assertNotContains(page, "Seeds of Change Organic")
+
+    def test_header_and_footer_links(self):
+        page = self.client.get(reverse("core:index")).content.decode()
+        for name in ["core:about_us", "core:contact", "core:privacy_policy", "core:terms_of_service", "core:purchase_guide",
+                     "core:cart", "core:wishlist", "userauths:sign-in", "userauths:sign-up", "core:vendor-list"]:
+            self.assertIn(f'href="{reverse(name)}"', page, name)

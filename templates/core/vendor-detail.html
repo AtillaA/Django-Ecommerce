@@ -5,7 +5,7 @@
         <div class="page-header breadcrumb-wrap">
             <div class="container">
                 <div class="breadcrumb">
-                    <a href="index.html" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
+                    <a href="{% url 'core:index' %}" rel="nofollow"><i class="fi-rs-home mr-5"></i>Home</a>
                     <span></span> Store <span></span> E-commerce Food
                 </div>
             </div>
@@ -20,7 +20,7 @@
                         <div class="product-category">
                             <span class="text-muted">Since {{vendor.date|date:"Y"}}</span>
                         </div>
-                        <h3 class="mb-5 text-white"><a href="vendor-details-1.html" class="text-white">{{vendor.title}}</a></h3>
+                        <h3 class="mb-5 text-white"><a href="{% url 'core:vendor-detail' vendor.vid %}" class="text-white">{{vendor.title}}</a></h3>
                         <div class="product-rate-cover mb-15">
                             <div class="product-rate d-inline-block">
                                 <div class="product-rating" style="width: 90%"></div>
@@ -142,9 +142,9 @@
                             </div>
                             <div class="product-content-wrap">
                                 <div class="product-category">
-                                    <a href="shop-grid-right.html">{{p.category.title}}</a>
+                                    {% if p.category %}<a href="{% url 'core:category-product-list' p.category.cid %}">{{ p.category.title }}</a>{% endif %}
                                 </div>
-                                <h2><a href="shop-product-right.html">{{p.title|truncatechars:50}}</a></h2>
+                                <h2><a href="{% url 'core:product-detail' p.pid %}">{{p.title|truncatechars:50}}</a></h2>
                                 <div class="product-rate-cover">
                                     <!-- <div class="product-rate d-inline-block">
                                         <div class="product-rating" style="width: 90%"></div>
@@ -353,7 +353,7 @@
                         <ul>
                             {% for c in categories %}
                             <li>
-                                <a href="shop-grid-right.html"> <img src="{{c.image.url}}" alt="" />{{c.title}}</a><span class="count">{{c.category.all.count}}</span>
+                                <a href="{% url 'core:category-product-list' c.cid %}"> <img src="{{c.image.url}}" alt="" />{{c.title}}</a><span class="count">{{c.category.all.count}}</span>
                             </li>
                             {% endfor %}
                         </ul>
