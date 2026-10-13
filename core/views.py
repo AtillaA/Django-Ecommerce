@@ -188,27 +188,22 @@ def filter_product(request):
     vendors = request.GET.getlist("vendor[]")
 
 
-    min_price = request.GET['min_price']
-    max_price = request.GET['max_price']
+    min_price = request.GET.get('min_price')
+    max_price = request.GET.get('max_price')
 
+    # Each filter narrows the list only when it has a value; with none, every product is shown.
     products = Product.objects.filter(product_status="published").order_by("-id").distinct()
 
-    products = products.filter(price__gte=min_price)
-    products = products.filter(price__lte=max_price)
+    if min_price:
+        products = products.filter(price__gte=min_price)
+    if max_price:
+        products = products.filter(price__lte=max_price)
+    if categories:
+        products = products.filter(category__id__in=categories)
+    if vendors:
+        products = products.filter(vendor__id__in=vendors)
 
 
-    if len(categories) > 0:
-        products = products.filter(category__id__in=categories).distinct() 
-    else:
-        products = Product.objects.filter(product_status="published").order_by("-id").distinct()
-    if len(vendors) > 0:
-        products = products.filter(vendor__id__in=vendors).distinct() 
-    else:
-        products = Product.objects.filter(product_status="published").order_by("-id").distinct()    
-    
-       
-
-    
     data = render_to_string("core/async/product-list.html", {"products": products})
     return JsonResponse({"data": data})
 

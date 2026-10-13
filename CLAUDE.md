@@ -114,9 +114,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- Shop filters don't filter: `filter_product`'s `else` branches reset the queryset, so ticking
-  one category still shows every product and a price limit alone is ignored (it only works when
-  both a category and a vendor are ticked).
 - "Add" does nothing on filtered results: `function.js` binds `.add-to-cart-btn` once at page
   load, and the list redrawn by the filter gets no handlers.
 - Cart page breaks after removing a line: it is redrawn from `core/async/cart-list.html`, which
@@ -213,6 +210,7 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Sign-up and sign-in.
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search (with a search term).
+- Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
 - Add to cart from product lists and the product page (quantity respected).
 - Wishlist add and remove.
 - Reviews when signed in.
