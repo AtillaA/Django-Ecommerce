@@ -148,11 +148,28 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Minor
 
-- 98 links in `partials/base.html` go to `#`, including every "Mega menu" entry; "Deals" just
-  opens the full shop.
-- Links to 12 theme demo pages (`index.html`, `shop-compare.html`, `shop-product-right.html`,
-  `shop-grid-right.html`, `shop-cart.html`, `page-register.html`, `vendor-details-1/2.html`, ...)
-  appear on up to 36 pages and all 404.
+- Dead-end routes, labelled for the dead-ends pass. Theme links are relative, so they 404 under
+  whatever page they sit on (e.g. `/product/test-01/shop-compare.html`). Counts skip commented-out
+  markup and the store dashboard (October 2026):
+
+  | Dead link | Links | Where / what | Likely fix |
+  |---|---|---|---|
+  | `shop-product-right.html` | 191 | Demo product cards in `core/index.html` (152); sidebar demo products on vendor, shop, search, tag pages | Remove with the demo blocks |
+  | `shop-grid-right.html` | 117 | Category labels on product cards (incl. `async/product-list.html`); sidebars of info pages and the product page | `core:category-product-list` / `core:product-list` |
+  | `vendor-details-1.html` | 81 | "By (vendor)" on demo product cards | Remove with the demo blocks |
+  | `vendor-details-2.html` | 2 | Vendor name on the product page | `core:vendor-detail` |
+  | `shop-cart.html` | 81 | "Add" on demo product cards | Remove with the demo blocks |
+  | `shop-compare.html` | 62 | "Compare" icons | Remove (no compare feature) or build one |
+  | `shop-wishlist.html` | 61 | "Add To Wishlist" icons on demo cards | Remove with the demo blocks |
+  | `shop-product-detail.html` | 15 | Demo products in info-page and product-page sidebars | Remove |
+  | `index.html` | 20 | Breadcrumb "Home" on 20 pages | `core:index` |
+  | `page-login.html` | 3 | "Logout" in the dashboard and profile-edit menus; "Log in instead!" on order detail | `userauths:sign-out` / remove |
+  | `page-register.html` | 1 | "Register now" on the product page | `userauths:sign-up` |
+  | `page-contact.html` | 1 | "contact us" on the terms page | `core:contact` |
+  | `/cdn-cgi/l/email-protection` | 1 | Footer email, shows "[email protected]" (Cloudflare leftover) | Real `mailto:` |
+  | `#` | 225 | 97 in `partials/base.html`: every "Mega menu" entry, language/currency switchers, footer columns (Delivery Information, Support Center, Careers, ...), social icons; the rest are placeholders in page templates (vendor/about demo links, pagination) | Link real pages or remove |
+
+  "Deals" in the main menu opens the full shop (no deals page).
 - Most of `core/index.html` is fixed demo content: only the first "Popular Products" tab and
   "Shop by Categories" use real data. "Deals Of The Day", "Top Selling", "Trending Products",
   "Recently added", "Top Rated" and the other tabs are demo products whose 60 "Add" buttons link
@@ -163,7 +180,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
   `name`); the header search's category dropdown is demo data and ignored.
 - Newsletter "Subscribe" forms have no backend.
 - Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
-- Footer email shows "[email protected]" and links to a dead `/cdn-cgi/l/email-protection`.
 - The product page "Delivery" box labels the default address "Verified Address" and others
   "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
