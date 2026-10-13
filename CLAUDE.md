@@ -7,8 +7,9 @@ test products, and real content is added via the admin.
 ## Standing instructions
 
 - **Keep this file current.** After finishing any feature or change, update the relevant
-  sections below (feature table, gotchas, known issues). Keep entries short and don't describe
-  what the code already makes obvious; record intent, decisions and traps.
+  sections below (feature table, gotchas, functional discrepancies, tested and working). Keep
+  entries short and don't describe what the code already makes obvious; record intent,
+  decisions and traps.
 - **Business importance is the user's call.** The user decides how important a feature is to
   customers; Claude handles the technical side. When a new or changed feature's importance
   is unknown, ask one short question and record the answer in the feature table.
@@ -16,14 +17,18 @@ test products, and real content is added via the admin.
 - **Commits:** fold trivial tweaks (copy, placeholders, small styling) into the next related
   commit and mention them in its message; give meaningful or separately-revertible changes
   their own commit. Work on a branch and open a PR unless told otherwise.
-- When a known issue below is fixed, delete its line.
+- When a functional discrepancy below is fixed, delete its line (and add the feature to
+  "Tested and Working" once verified).
+- The user works on Windows 11: give Windows (PowerShell/cmd) commands.
 
 ## Commands
 
-```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+```powershell
+# Windows 11 (PowerShell). macOS/Linux: `source .venv/bin/activate`, `cp` instead of `copy`.
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env            # required: settings read SECRET_KEY/DEBUG etc. from .env
+copy .env.example .env          # required: settings read SECRET_KEY/DEBUG etc. from .env
 python manage.py migrate
 python manage.py runserver      # http://127.0.0.1:8000
 python manage.py createsuperuser   # prompts for email, username, password
@@ -73,7 +78,7 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 - Products only appear on the storefront when `product_status == "published"` (new ones default
   to `in_review`); the homepage shows only `featured` ones.
 - All data is disposable until launch. After model changes that clash with existing rows,
-  resetting is fine: `rm db.sqlite3 && python manage.py migrate && python manage.py seed_test_data`.
+  resetting is fine (PowerShell): `del db.sqlite3; python manage.py migrate; python manage.py seed_test_data`.
 - `seed_test_data` marks its rows by IDs (`pid`/`cid`/`vid`) starting with `test-`, which
   generated IDs never do; `--delete` removes only those, plus their gallery images, reviews,
   wishlist rows, unused tags and `media/test-data/`. Update its `PRODUCTS` list when the
@@ -100,34 +105,118 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
 - Deployment isn't set up: `Procfile` (gunicorn) and `runtime.txt` exist, but static file serving
   (e.g. WhiteNoise), a production database and production `.env` values are still missing.
 
-## Known issues (inherited from the template; fix before taking real orders)
+## Functional Discrepancies to be Fixed
 
-- Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and
-  orders are built from them.
+Found in the template and confirmed against the running app (October 2026 audit, with
+`seed_test_data`). Each line is meant to become its own fix and PR; delete it once fixed.
+
+### Priority
+
+#### Blocks shopping/account use
+
+- Shop filters don't filter: `filter_product`'s `else` branches reset the queryset, so ticking
+  one category still shows every product and a price limit alone is ignored (it only works when
+  both a category and a vendor are ticked).
+- "Add" does nothing on filtered results: `function.js` binds `.add-to-cart-btn` once at page
+  load, and the list redrawn by the filter gets no handlers.
+- Cart page breaks after removing a line: it is redrawn from `core/async/cart-list.html`, which
+  has no checkout form, turns "Proceed To CheckOut" into `<a href="">`, and its delete/update
+  buttons have no handlers (same binding problem) until a reload.
+- A published product with no vendor crashes the category page and search (500,
+  `{% url 'core:vendor-detail' p.vendor.vid %}`). Store-dashboard products have no vendor.
+- Search (`search_view`) and "related products" (`product_detail_view`) include unpublished
+  (draft/in-review) products; `/search/` without `q` crashes.
+- Customers can't manage their account: the dashboard "Account details" form has no
+  `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
+  password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
+- Signed-out visitors get a 500 instead of a sign-in prompt: `ajax_add_review`,
+  `add_to_wishlist`, `order_detail`, `profile_update`.
+- Unknown products, categories, vendors and orders give a 500 instead of a 404: views use
+  `.get()` (also `useradmin` `edit_product`, `delete_product`, `order_detail`).
+
+#### Store dashboard
+
+- Products added in `/useradmin/` can't go live: `AddProductForm` has no status, vendor or
+  featured fields, so they stay `in_review` (publishing needs `/admin/`, then the missing vendor
+  crashes pages as above).
+- Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
+  is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
+- "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
+- Changing the password logs the user out (no `update_session_auth_hash`) and lands on sign-in
+  with "not authorized".
+
+### Major
+
+- Wishlist page lists every user's items (`wishlist_model.objects.all()`), and the header
+  wishlist count doesn't update until a reload.
+- Making an address default clears every other user's default (`make_address_default` updates
+  all `Address` rows).
+- The customer dashboard's orders chart counts all users' orders (`customer_dashboard`).
+- The product page "Delivery" box never shows the user's address: `product_detail_view` passes
+  `address = "Login To Continue"`, overriding the context processor (which also returns `None`
+  for users with 2+ addresses).
+- Cart quantities aren't validated: negative values give negative totals; an empty value makes
+  `/update-cart/` fail (500) and hides the refresh button; adding an item already in the cart
+  replaces its quantity instead of adding to it.
+- Stock is never checked when adding to cart or ordering, and orders don't reduce it
+  (`in_stock`/`stock_count` unused in views).
+- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
+  templates show it as the discount ("-83% Off").
+- A wrong password says "User Does Not Exist, create an account." (`login_view`).
+- Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
+  order confirmations.
+
+### Minor
+
+- 98 links in `partials/base.html` go to `#`, including every "Mega menu" entry; "Deals" just
+  opens the full shop.
+- Links to 12 theme demo pages (`index.html`, `shop-compare.html`, `shop-product-right.html`,
+  `shop-grid-right.html`, `shop-cart.html`, `page-register.html`, `vendor-details-1/2.html`, ...)
+  appear on up to 36 pages and all 404.
+- Most of `core/index.html` is fixed demo content: only the first "Popular Products" tab and
+  "Shop by Categories" use real data. "Deals Of The Day", "Top Selling", "Trending Products",
+  "Recently added", "Top Rated" and the other tabs are demo products whose 60 "Add" buttons link
+  to `shop-cart.html` (404). Hardcoded "Milks & Dairies" labels on the category sidebar
+  (~line 3006).
+- "Quick view" buttons (61) target a `#quickViewModal` that doesn't exist.
+- Mobile search doesn't search (`partials/base.html` ~line 393: `action="#"`, input has no
+  `name`); the header search's category dropdown is demo data and ignored.
+- Newsletter "Subscribe" forms have no backend.
+- Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
+- Footer email shows "[email protected]" and links to a dead `/cdn-cgi/l/email-protection`.
+- Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
+  `partials/base.html`), "Nestify" default vendor name, hardcoded breadcrumb and "(32 reviews)"
+  on `core/product-detail.html`, fallback avatars hotlinked from external sites.
+- Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
+  relative `favicon.svg` and `slider-range.css` paths (404 on most pages),
+  `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
+  and a dead Cloudflare `email-decode.min.js` reference.
+- Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and orders
+  are built from them. Must be fixed before taking real orders.
 - With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
   verifying the Stripe payment.
 - `create_checkout_session` is `csrf_exempt` with no sign-in or ownership check, and resets
   `paid_status` to False on whatever order ID it is given.
-- Missing ownership checks: `wishlist_view` lists every user's wishlist; `remove_wishlist` and
-  `make_address_default` (resets **all** users' addresses) act on any ID.
-- State-changing actions use GET without CSRF (cart, wishlist, default address, contact form);
-  `change_order_status` is `csrf_exempt`.
-- Views crash for anonymous users instead of redirecting: `ajax_add_review`, `add_to_wishlist`,
-  `order_detail`. Many views use `.get()` without 404 handling.
-- `filter_product`: the `else` branches reset the queryset, so price and category filters are
-  dropped unless both a category and a vendor are selected.
-- Login/sign-up redirect to an unvalidated `next` parameter.
-- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
-  templates show it as the discount ("-83% Off").
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
-- Leftover template content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
-  `partials/base.html`), "Nestify" default vendor name, large static demo sections in
-  `core/index.html` (including hardcoded "Milks & Dairies" labels on the homepage category
-  sidebar, ~line 3006, and demo tab names), hardcoded breadcrumb and "(32 reviews)" on
-  `core/product-detail.html`, fallback avatars hotlinked from external sites.
-- Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
-  `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
-  and a dead Cloudflare `email-decode.min.js` reference.
-- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to
-  the server log. Most features have no tests.
+- `remove_wishlist` deletes any wishlist row by ID (no ownership check).
+- State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
+  `useradmin` product delete); `change_order_status` is `csrf_exempt`.
+- Login/sign-up redirect to an unvalidated `next` parameter.
+- Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
+  server log. Most features have no tests.
+
+## Tested and Working
+
+Confirmed in the October 2026 audit (browser and test client, with `seed_test_data`):
+
+- Sign-up and sign-in.
+- Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
+- Header search (with a search term).
+- Add to cart from product lists and the product page (quantity respected).
+- Wishlist add and remove.
+- Reviews when signed in.
+- Contact form (message saved).
+- Adding addresses and setting a default.
+- Order history and order detail in the customer dashboard.
+- Checkout with the mock payment (`core/tests.py` covers it).
