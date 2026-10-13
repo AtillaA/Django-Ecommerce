@@ -32,11 +32,12 @@ def cart_line(product, qty):
     }
 
 
-def refresh_cart(request):
-    """The cart with current titles and prices; drops products that are gone or unpublished."""
-    if CART_SESSION_KEY not in request.session:
-        return {}
-    stored = request.session[CART_SESSION_KEY]
+def read_cart(request):
+    """The cart with current titles and prices, minus products that are gone or unpublished.
+
+    Doesn't save it back to the session (for the header's cart preview on every page).
+    """
+    stored = request.session.get(CART_SESSION_KEY, {})
     ids = [int(key) for key in stored if key.isdigit()]
     products = Product.objects.filter(product_status="published").in_bulk(ids)
     cart = {}
@@ -45,6 +46,14 @@ def refresh_cart(request):
         qty = parse_quantity(item.get("qty"))
         if product and qty:
             cart[key] = cart_line(product, qty)
+    return cart
+
+
+def refresh_cart(request):
+    """read_cart(), saved back to the session."""
+    if CART_SESSION_KEY not in request.session:
+        return {}
+    cart = read_cart(request)
     request.session[CART_SESSION_KEY] = cart
     return cart
 

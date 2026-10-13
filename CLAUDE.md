@@ -228,6 +228,9 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   respected); adding an item already in the cart adds to its quantity; quantities below 1,
   empty or non-numeric are refused (browser and server) and the old value is restored; line
   subtotals and totals are exact and use database prices.
+- Header cart preview (hover over "Cart", desktop and mobile): items with quantity, price and a
+  remove "×", the total, "View cart" and "Checkout"; it refreshes without a reload when the cart
+  changes (`core/async/mini-cart.html`, data from `read_cart` in the context processor).
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
 - Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone

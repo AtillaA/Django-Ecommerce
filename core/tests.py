@@ -763,3 +763,28 @@ class RealLinksTests(TestCase):
         for name in ["core:about_us", "core:contact", "core:privacy_policy", "core:terms_of_service", "core:purchase_guide",
                      "core:cart", "core:wishlist", "userauths:sign-in", "userauths:sign-up", "core:vendor-list"]:
             self.assertIn(f'href="{reverse(name)}"', page, name)
+
+
+class CartPreviewTests(TestCase):
+    def setUp(self):
+        self.apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+
+    def test_header_lists_cart_items_and_total(self):
+        self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 3})
+        page = self.client.get(reverse("core:product-list")).content.decode()
+        preview = page[page.index('class="cart-dropdown-wrap cart-dropdown-hm2 mini-cart"'):]
+        self.assertIn("Apple", preview)
+        self.assertIn("<span>3 × </span>$1.50", preview)
+        self.assertIn("Total <span>$4.50</span>", preview)
+        self.assertEqual(page.count('class="cart-dropdown-wrap cart-dropdown-hm2 mini-cart"'), 2)  # desktop and mobile
+
+    def test_empty_cart(self):
+        self.assertContains(self.client.get(reverse("core:index")), "Your cart is empty.")
+
+    def test_cart_actions_return_the_refreshed_preview(self):
+        added = self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 2}).json()
+        self.assertIn("<span>2 × </span>$1.50", added["mini_cart"])
+        updated = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": 5}).json()
+        self.assertIn("<span>5 × </span>$1.50", updated["mini_cart"])
+        removed = self.client.get(reverse("core:delete-from-cart"), {"id": self.apple.id}).json()
+        self.assertIn("Your cart is empty.", removed["mini_cart"])

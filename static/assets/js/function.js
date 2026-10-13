@@ -182,6 +182,7 @@ $(document).ready(function () {
             success: function (response) {
                 this_val.html("<i class='fas fa-check-circle'></i>")
                 $(".cart-items-count").text(response.totalcartitems)
+                $(".mini-cart").html(response.mini_cart)
             },
             error: showCartError
         })
@@ -196,6 +197,7 @@ $(document).ready(function () {
             $("#cart-list form [name='" + field.name + "']").not("[type=hidden]").val(field.value)
         })
         $(".cart-items-count").text(response.totalcartitems)
+        $(".mini-cart").html(response.mini_cart)
     }
 
 

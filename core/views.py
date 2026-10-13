@@ -282,7 +282,7 @@ def add_to_cart(request):
         return JsonResponse({"error": str(error)}, status=409)
     cart[product_id] = cart_line(product, qty)
     request.session[CART_SESSION_KEY] = cart
-    return JsonResponse({"data": cart, 'totalcartitems': len(cart)})
+    return JsonResponse({"data": cart, 'totalcartitems': len(cart), "mini_cart": render_to_string("core/async/mini-cart.html", request=request)})
 
 
 
@@ -298,7 +298,7 @@ def cart_view(request):
 def cart_fragment(request, cart, error=None, status=200):
     """The redrawn cart (core/async/cart-list.html) for function.js's redrawCart(), plus any error."""
     data = render_to_string("core/async/cart-list.html", {"cart_data": cart, 'totalcartitems': len(cart), 'cart_total_amount': cart_total(cart)}, request=request)
-    response = {"data": data, 'totalcartitems': len(cart)}
+    response = {"data": data, 'totalcartitems': len(cart), "mini_cart": render_to_string("core/async/mini-cart.html", request=request)}
     if error:
         response["error"] = error
     return JsonResponse(response, status=status)
