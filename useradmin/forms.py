@@ -1,5 +1,6 @@
 from core.models import Product
 from django import forms
+from taggit.forms import TagField, TagWidget
 # from bootstrap_datepicker_plus import DatePickerInput
 
 
@@ -13,7 +14,8 @@ class AddProductForm(forms.ModelForm):
     stock_count = forms.CharField(widget=forms.NumberInput(attrs={'placeholder': "How many are in stock?", "class":"form-control"}))
     life = forms.CharField(widget=forms.TextInput(attrs={'placeholder': "How long would this product live?", "class":"form-control"}))
     mfd = forms.DateTimeField(widget=forms.DateTimeInput(attrs={'placeholder': "e.g: 22-11-02", "class":"form-control"}))
-    tags = forms.CharField(widget=forms.TextInput(attrs={'placeholder': "Tags", "class":"form-control"}))
+    # taggit's field splits "breakfast, sweet" into separate tags (a plain CharField saved one tag per letter)
+    tags = TagField(required=False, widget=TagWidget(attrs={'placeholder': "Tags, separated by commas", "class":"form-control"}))
     image = forms.ImageField(widget=forms.FileInput(attrs={"class":"form-control"}))
 
     class Meta:

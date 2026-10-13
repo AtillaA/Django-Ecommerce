@@ -37,7 +37,7 @@ python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # tests live in core/tests.py and userauths/tests.py
+python manage.py test           # tests live in core/, userauths/ and useradmin/tests.py
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -80,7 +80,9 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   `get_object_or_404(Model, id=..., user=request.user)`. The template ignored this everywhere;
   `core/tests.py` `UserIsolationTests` covers the fixed views.
 - Products only appear on the storefront when `product_status == "published"` (new ones default
-  to `in_review`); the homepage shows only `featured` ones.
+  to `in_review`); the homepage shows only `featured` ones. Publishing is admin-only by design
+  (user's decision): products added in the store dashboard stay `in_review` until an admin
+  publishes them in `/admin/`, so `AddProductForm` deliberately has no status/featured fields.
 - All data is disposable until launch. After model changes that clash with existing rows,
   resetting is fine (PowerShell): `del db.sqlite3; python manage.py migrate; python manage.py seed_test_data`.
 - The site is a single store: every product saved without a vendor gets the default vendor
@@ -128,10 +130,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Store dashboard
 
-- Products added in `/useradmin/` can't go live: `AddProductForm` has no status or featured
-  fields, so they stay `in_review` (publishing needs `/admin/`).
-- Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
-  is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
 - "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
 
 ### Major
@@ -216,6 +214,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
+- Store-dashboard product tags: "breakfast, sweet" saves two tags (taggit `TagField`), shown back
+  the same way when editing; tags are optional.
 - Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
   search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
