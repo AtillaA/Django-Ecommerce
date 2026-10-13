@@ -68,7 +68,7 @@ def category_list_view(request):
 
 def category_product_list__view(request, cid):
 
-    category = Category.objects.get(cid=cid) # food, Cosmetics
+    category = get_object_or_404(Category, cid=cid)
     products = Product.objects.filter(product_status="published", category=category)
 
     context = {
@@ -87,7 +87,7 @@ def vendor_list_view(request):
 
 
 def vendor_detail_view(request, vid):
-    vendor = Vendor.objects.get(vid=vid)
+    vendor = get_object_or_404(Vendor, vid=vid)
     products = Product.objects.filter(vendor=vendor, product_status="published").order_by("-id")
 
     context = {
@@ -98,8 +98,7 @@ def vendor_detail_view(request, vid):
 
 
 def product_detail_view(request, pid):
-    product = Product.objects.get(pid=pid)
-    # product = get_object_or_404(Product, pid=pid)
+    product = get_object_or_404(Product, pid=pid)
     products = Product.objects.filter(category=product.category, product_status="published").exclude(pid=pid)
 
     # Getting all reviews related to a product
@@ -157,7 +156,7 @@ def tag_list(request, tag_slug=None):
 
 @ajax_login_required
 def ajax_add_review(request, pid):
-    product = Product.objects.get(pk=pid)
+    product = get_object_or_404(Product, pk=pid)
     user = request.user 
 
     review = ProductReview.objects.create(
@@ -546,7 +545,7 @@ def customer_dashboard(request):
 
 @login_required
 def order_detail(request, id):
-    order = CartOrder.objects.get(user=request.user, id=id)
+    order = get_object_or_404(CartOrder, user=request.user, id=id)
     order_items = CartOrderProducts.objects.filter(order=order)
 
     
@@ -577,7 +576,7 @@ def wishlist_view(request):
 @ajax_login_required
 def add_to_wishlist(request):
     product_id = request.GET['id']
-    product = Product.objects.get(id=product_id)
+    product = get_object_or_404(Product, id=product_id)
     print("product id isssssssssssss:" + product_id)
 
     context = {}

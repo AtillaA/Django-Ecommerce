@@ -1,4 +1,4 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import get_object_or_404, render, redirect
 from django.db.models import Sum
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib import messages
@@ -68,7 +68,7 @@ def add_product(request):
 
 @admin_required
 def edit_product(request, pid):
-    product = Product.objects.get(pid=pid)
+    product = get_object_or_404(Product, pid=pid)
 
     if request.method == "POST":
         form = AddProductForm(request.POST, request.FILES, instance=product)
@@ -87,7 +87,7 @@ def edit_product(request, pid):
 
 @admin_required
 def delete_product(request, pid):
-    product = Product.objects.get(pid=pid)
+    product = get_object_or_404(Product, pid=pid)
     product.delete()
     return redirect("useradmin:dashboard-products")
 
@@ -101,7 +101,7 @@ def orders(request):
 
 @admin_required
 def order_detail(request, id):
-    order = CartOrder.objects.get(id=id)
+    order = get_object_or_404(CartOrder, id=id)
     order_items = CartOrderProducts.objects.filter(order=order)
     context = {
         'order':order,
@@ -112,7 +112,7 @@ def order_detail(request, id):
 @admin_required
 @csrf_exempt
 def change_order_status(request, oid):
-    order = CartOrder.objects.get(oid=oid)
+    order = get_object_or_404(CartOrder, oid=oid)
     if request.method == "POST":
         status = request.POST.get("status")
         print("status =======", status)

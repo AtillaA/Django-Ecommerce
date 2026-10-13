@@ -365,3 +365,34 @@ class UserIsolationTests(TestCase):
         self.assertTrue(Address.objects.get(id=alice_work.id).status)
         alice_home.refresh_from_db()
         self.assertFalse(alice_home.status)
+
+
+class NotFoundTests(TestCase):
+    def test_unknown_storefront_objects_give_404(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        others_order = CartOrder.objects.create(user=other)
+        self.client.force_login(user)
+        for url in [
+            reverse("core:product-detail", args=["nope"]),
+            reverse("core:category-product-list", args=["nope"]),
+            reverse("core:vendor-detail", args=["nope"]),
+            reverse("core:order-detail", args=[999999]),
+            reverse("core:order-detail", args=[others_order.id]),
+            reverse("core:add-to-wishlist") + "?id=999999",
+        ]:
+            self.assertEqual(self.client.get(url).status_code, 404, url)
+        response = self.client.post(reverse("core:ajax-add-review", args=[999999]), {"review": "x", "rating": 5})
+        self.assertEqual(response.status_code, 404)
+
+    def test_unknown_store_dashboard_objects_give_404(self):
+        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="pass-12345")
+        self.client.force_login(boss)
+        for url in [
+            reverse("useradmin:dashboard-edit-products", args=["nope"]),
+            reverse("useradmin:dashboard-delete-products", args=["nope"]),
+            reverse("useradmin:order_detail", args=[999999]),
+            reverse("useradmin:change_order_status", args=["nope"]),
+            "/useradmin/order_detail/abc/",
+        ]:
+            self.assertEqual(self.client.get(url).status_code, 404, url)

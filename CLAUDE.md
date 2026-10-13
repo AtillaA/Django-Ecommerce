@@ -125,8 +125,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Customers can't manage their account: the dashboard "Account details" form has no
   `{% csrf_token %}` and no backend (403; its "Last Name" input is named `phone`); "Forgot
   password?" is `href="#"` (no reset flow); the "Track your order" form posts to `#`.
-- Unknown products, categories, vendors and orders give a 500 instead of a 404: views use
-  `.get()` (also `useradmin` `edit_product`, `delete_product`, `order_detail`).
 
 #### Store dashboard
 
@@ -218,4 +216,6 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Contact form (message saved).
 - Adding addresses and setting a default (only your own addresses change).
 - Order history and order detail in the customer dashboard.
+- Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
+  and so does another user's order.
 - Checkout with the mock payment (`core/tests.py` covers it).
