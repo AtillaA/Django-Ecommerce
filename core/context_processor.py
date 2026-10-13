@@ -20,10 +20,11 @@ def default(request):
 
     
     
-    try:
-        address = Address.objects.get(user=request.user)
-    except:
-        address = None
+    address = None
+    if request.user.is_authenticated:
+        # The default address, else the most recently added one
+        addresses = Address.objects.filter(user=request.user)
+        address = addresses.filter(status=True).first() or addresses.order_by("-id").first()
 
     return {
         'categories':categories,

@@ -463,6 +463,7 @@
                                     <li>
                                         <i class="fi fi-rs-marker mr-10 text-brand"></i>
                                         <span>
+                                            {% if address %}
                                             {{ address.address }} <br />
                                              <br />
                                              {% if address.status == True  %}
@@ -470,6 +471,11 @@
                                              {% else %}
                                              <span class="text-danger">Unverified Address </span>
                                              {% endif %}
+                                            {% elif user.is_authenticated %}
+                                            No delivery address saved yet
+                                            {% else %}
+                                            Sign in to see your delivery address
+                                            {% endif %}
                                         </span>
                                         <a href="{% url 'core:dashboard' %}" class="change float-end">Change</a>
                                     </li>

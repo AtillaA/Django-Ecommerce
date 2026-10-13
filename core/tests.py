@@ -408,3 +408,36 @@ class CustomerDashboardTests(TestCase):
             self.assertNotContains(page, gone)
         for tab in ["profile-tab", "orders-tab", "address-tab", "account-detail-tab"]:
             self.assertContains(page, f'id="{tab}"')
+
+
+class DeliveryAddressTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.product = Product.objects.create(title="Plain", product_status="published")
+        self.url = reverse("core:product-detail", args=[self.product.pid])
+
+    def test_default_address_is_shown_when_there_are_several(self):
+        Address.objects.create(user=self.user, address="1 Old Road")
+        Address.objects.create(user=self.user, address="2 Default Street", status=True)
+        Address.objects.create(user=self.user, address="3 New Lane")
+        self.client.force_login(self.user)
+        page = self.client.get(self.url)
+        self.assertEqual(page.context["address"].address, "2 Default Street")
+        self.assertContains(page, "2 Default Street")
+
+    def test_newest_address_is_used_when_none_is_default(self):
+        Address.objects.create(user=self.user, address="1 Old Road")
+        Address.objects.create(user=self.user, address="3 New Lane")
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(self.url), "3 New Lane")
+
+    def test_prompts_without_an_address(self):
+        self.assertContains(self.client.get(self.url), "Sign in to see your delivery address")
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(self.url), "No delivery address saved yet")
+
+    def test_other_users_addresses_are_never_used(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        Address.objects.create(user=other, address="Not Mine", status=True)
+        self.client.force_login(self.user)
+        self.assertNotContains(self.client.get(self.url), "Not Mine")

@@ -117,14 +117,10 @@ def product_detail_view(request, pid):
         if user_review_count > 0:
             make_review = False
     
-    address = "Login To Continue"
-
-
     p_image = product.p_images.all()
 
     context = {
         "p": product,
-        "address": address,
         "make_review": make_review,
         "review_form": review_form,
         "p_image": p_image,

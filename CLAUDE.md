@@ -136,9 +136,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 ### Major
 
-- The product page "Delivery" box never shows the user's address: `product_detail_view` passes
-  `address = "Login To Continue"`, overriding the context processor (which also returns `None`
-  for users with 2+ addresses).
 - Cart quantities aren't validated: negative values give negative totals; an empty value makes
   `/update-cart/` fail (500) and hides the refresh button; adding an item already in the cart
   replaces its quantity instead of adding to it.
@@ -168,6 +165,8 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Newsletter "Subscribe" forms have no backend.
 - Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
 - Footer email shows "[email protected]" and links to a dead `/cdn-cgi/l/email-protection`.
+- The product page "Delivery" box labels the default address "Verified Address" and others
+  "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
   `partials/base.html`), "Nestify" default vendor name, hardcoded breadcrumb and "(32 reviews)"
   on `core/product-detail.html`, fallback avatars hotlinked from external sites.
@@ -219,7 +218,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
   twice (Django's password rules); errors reopen the tab; success says "Password changed
   successfully", keeps the user signed in and shows the Profile tab. The store dashboard's
   password page also keeps the admin signed in and goes to "Profile setting".
-- Adding addresses and setting a default (only your own addresses change).
+- Adding addresses and setting a default (only your own addresses change); the product page
+  "Delivery" box shows the default address (else the newest), or a sign-in/no-address prompt.
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
   and so does another user's order.
