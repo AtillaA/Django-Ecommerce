@@ -186,7 +186,19 @@ $(document).ready(function () {
     })
 
 
-    $(".delete-product").on("click", function () {
+    // Redraw the cart from the server's fragment, keeping what was typed in the checkout details
+    function redrawCart(response) {
+        let typed = $("#cart-list form").serializeArray()
+        $("#cart-list").html(response.data)
+        typed.forEach(function (field) {
+            $("#cart-list form [name='" + field.name + "']").not("[type=hidden]").val(field.value)
+        })
+        $(".cart-items-count").text(response.totalcartitems)
+    }
+
+
+    // Cart handlers are delegated because redrawCart replaces the buttons
+    $(document).on("click", ".delete-product", function () {
 
         let product_id = $(this).attr("data-product")
         let this_val = $(this)
@@ -203,9 +215,7 @@ $(document).ready(function () {
                 this_val.hide()
             },
             success: function (response) {
-                this_val.show()
-                $(".cart-items-count").text(response.totalcartitems)
-                $("#cart-list").html(response.data)
+                redrawCart(response)
             }
         })
 
@@ -214,7 +224,7 @@ $(document).ready(function () {
 
 
 
-    $(".update-product").on("click", function () {
+    $(document).on("click", ".update-product", function () {
 
         let product_id = $(this).attr("data-product")
         let this_val = $(this)
@@ -234,11 +244,7 @@ $(document).ready(function () {
                 this_val.hide()
             },
             success: function (response) {
-                this_val.show()
-                $(".cart-items-count").text(response.totalcartitems)
-                $("#cart-list").html(response.data)
-                window.location.reload()
-
+                redrawCart(response)
             }
         })
 

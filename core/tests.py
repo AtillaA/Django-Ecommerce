@@ -195,3 +195,37 @@ class FilterProductTests(TestCase):
     def test_price_box_starts_at_the_highest_price(self):
         page = self.client.get(reverse("core:product-list")).content.decode()
         self.assertIn('value="5.00" id="max_price"', page)
+
+
+class CartRedrawTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["cart_data_obj"] = {
+            **CART,
+            "2": {"title": "Test Pear", "qty": "1", "price": "2.00", "image": "/media/pear.jpg", "pid": "def456"},
+        }
+        session.save()
+
+    def assert_full_cart(self, html):
+        self.assertIn('action="/save_checkout_info/"', html)
+        self.assertIn("csrfmiddlewaretoken", html)
+        self.assertIn('name="full_name" value="Buyer"', html)
+        self.assertIn("Proceed To CheckOut", html)
+
+    def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
+        response = self.client.get(reverse("core:delete-from-cart"), {"id": "1"})
+        self.assertEqual(response.json()["totalcartitems"], 1)
+        html = response.json()["data"]
+        self.assert_full_cart(html)
+        self.assertIn("Test Pear", html)
+        self.assertNotIn("Test Apple", html)
+
+    def test_updating_a_quantity_returns_the_whole_cart_with_its_form(self):
+        html = self.client.get(reverse("core:update-cart"), {"id": "2", "qty": "3"}).json()["data"]
+        self.assert_full_cart(html)
+        self.assertIn('value="3"', html)
+
+    def test_cart_page_uses_the_same_fragment(self):
+        self.assert_full_cart(self.client.get(reverse("core:cart")).content.decode())

@@ -114,9 +114,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Blocks shopping/account use
 
-- Cart page breaks after removing a line: it is redrawn from `core/async/cart-list.html`, which
-  has no checkout form, turns "Proceed To CheckOut" into `<a href="">`, and its delete/update
-  buttons have no handlers (same binding problem) until a reload.
 - A published product with no vendor crashes the category page and search (500,
   `{% url 'core:vendor-detail' p.vendor.vid %}`). Store-dashboard products have no vendor.
 - Search (`search_view`) and "related products" (`product_detail_view`) include unpublished
@@ -211,6 +208,8 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
 - Add to cart from product lists (including filtered results) and the product page (quantity
   respected).
+- Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
+  anything typed in the checkout details; "Proceed To CheckOut" then works.
 - Wishlist add and remove.
 - Reviews when signed in.
 - Contact form (message saved).
