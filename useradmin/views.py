@@ -3,7 +3,7 @@ from django.db.models import Sum
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.hashers import check_password
+from django.contrib.auth.forms import PasswordChangeForm
 
 
 from core.models import CartOrder, CartOrderProducts, Product, Category, ProductReview
@@ -11,21 +11,22 @@ from userauths.models import Profile, User
 from useradmin.forms import AddProductForm
 from useradmin.decorators import admin_required
 
-import datetime
+from django.utils import timezone
 
 
 
 @admin_required
 def dashboard(request):
-    revenue = CartOrder.objects.aggregate(price=Sum("price"))
+    paid_orders = CartOrder.objects.filter(paid_status=True)
+    revenue = paid_orders.aggregate(price=Sum("price"))
     total_orders_count = CartOrder.objects.all()
     all_products = Product.objects.all()
     all_categories = Category.objects.all()
     new_customers = User.objects.all().order_by("-id")[:6]
     latest_orders = CartOrder.objects.all()
 
-    this_month = datetime.datetime.now().month
-    monthly_revenue = CartOrder.objects.filter(order_date__month=this_month).aggregate(price=Sum("price"))
+    now = timezone.now()
+    monthly_revenue = paid_orders.filter(order_date__year=now.year, order_date__month=now.month).aggregate(price=Sum("price"))
 
     
     context = {
@@ -176,25 +177,16 @@ def settings(request):
 
 @admin_required
 def change_password(request):
-    user = request.user
-
+    # Same rules as customers and the register page (AUTH_PASSWORD_VALIDATORS)
     if request.method == "POST":
-        old_password = request.POST.get("old_password")
-        new_password = request.POST.get("new_password")
-        confirm_new_password = request.POST.get("confirm_new_password")
-
-        if confirm_new_password != new_password:
-            messages.error(request, "Confirm Password and New Password Does Not Match")
-            return redirect("useradmin:change_password")
-        
-        if check_password(old_password, user.password):
-            user.set_password(new_password)
-            user.save()
-            update_session_auth_hash(request, user)  # keep the user signed in
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            update_session_auth_hash(request, form.save())  # keep the user signed in
             messages.success(request, "Password changed successfully")
             return redirect("useradmin:settings")
-        else:
-            messages.error(request, "Old password is not correct")
-            return redirect("useradmin:change_password")
-    
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("useradmin:change_password")
+
     return render(request, "useradmin/change_password.html")

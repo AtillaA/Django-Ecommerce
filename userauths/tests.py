@@ -79,14 +79,33 @@ class ProfileUpdateTests(TestCase):
 
 
 class StoreDashboardPasswordTests(TestCase):
+    url = reverse("useradmin:change_password")
+
+    def setUp(self):
+        self.boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="Old-pass-123")
+        self.client.force_login(self.boss)
+
+    def change(self, old, new1, new2):
+        return self.client.post(self.url, {"old_password": old, "new_password1": new1, "new_password2": new2})
+
+    def test_inputs_hide_what_is_typed(self):
+        page = self.client.get(self.url).content.decode()
+        for name in ["old_password", "new_password1", "new_password2"]:
+            self.assertRegex(page, rf'name="{name}" value="" type="password"')
+
     def test_success_keeps_the_admin_signed_in_and_goes_to_profile_settings(self):
-        boss = User.objects.create_superuser(username="boss", email="boss@example.com", password="Old-pass-123")
-        self.client.force_login(boss)
-        response = self.client.post(reverse("useradmin:change_password"), {
-            "old_password": "Old-pass-123", "new_password": "New-pass-456", "confirm_new_password": "New-pass-456"})
+        response = self.change("Old-pass-123", "New-pass-456", "New-pass-456")
         self.assertRedirects(response, reverse("useradmin:settings"))
         self.assertIn("Password changed successfully", message_texts(response))
         self.assertEqual(self.client.get(reverse("useradmin:dashboard")).status_code, 200)  # still signed in
+
+    def test_applies_the_register_page_password_rules(self):
+        for weak in ["short", "12345678", "password"]:
+            response = self.change("Old-pass-123", weak, weak)
+            self.assertRedirects(response, self.url, fetch_redirect_response=False, msg_prefix=weak)
+            self.assertTrue(message_texts(response), weak)
+        self.boss.refresh_from_db()
+        self.assertTrue(self.boss.check_password("Old-pass-123"))
 
 
 class SignInMessageTests(TestCase):

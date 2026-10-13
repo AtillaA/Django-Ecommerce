@@ -37,7 +37,7 @@ python manage.py seed_test_data --delete   # remove them again
 
 python manage.py check
 python manage.py makemigrations --check --dry-run   # must print "No changes detected"
-python manage.py test           # tests live in core/tests.py and userauths/tests.py
+python manage.py test           # tests live in core/, userauths/ and useradmin/tests.py
 ```
 
 Python 3.10+ (tested on 3.14), Django 5.2 LTS, SQLite in development.
@@ -80,7 +80,9 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   `get_object_or_404(Model, id=..., user=request.user)`. The template ignored this everywhere;
   `core/tests.py` `UserIsolationTests` covers the fixed views.
 - Products only appear on the storefront when `product_status == "published"` (new ones default
-  to `in_review`); the homepage shows only `featured` ones.
+  to `in_review`); the homepage shows only `featured` ones. Publishing is admin-only by design
+  (user's decision): products added in the store dashboard stay `in_review` until an admin
+  publishes them in `/admin/`, so `AddProductForm` deliberately has no status/featured fields.
 - All data is disposable until launch. After model changes that clash with existing rows,
   resetting is fine (PowerShell): `del db.sqlite3; python manage.py migrate; python manage.py seed_test_data`.
 - The site is a single store: every product saved without a vendor gets the default vendor
@@ -95,6 +97,16 @@ Importance is set by the user (customer point of view). `?` = not rated yet: ask
   `product=None`, which makes `/wishlist/` return 500. Delete those rows too.
 - `.env` is git-ignored and required. `SECRET_KEY` has no default; `DEBUG` defaults to False. The
   old hard-coded secret key is public in git history: never use it in production.
+- The session cart (`core/cart.py`) trusts only product IDs and quantities: titles, prices and
+  images are re-read from the database on every cart read (`refresh_cart`), so the browser can't
+  set prices and totals always match the product pages. Quantities are whole numbers >= 1.
+- Stock: `Product.available_stock` (`stock_count`, or 0 when `in_stock` is off) is the one read
+  point; `core/stock.py` checks it on add/update to cart and at checkout, and deducts only when
+  an order is paid (`deduct_for_order`, conditional UPDATEs in one transaction with the payment),
+  so abandoned carts hold nothing. Long-term plan: an ERP will own stock; swap the read point and
+  report sales from `core/stock.py`. Only the mock payment path deducts; the Stripe path
+  (`payment_completed_view`) must call `deduct_for_order` when payments are reworked.
+  `CartOrderProducts.product` links order lines to products (older lines have none).
 - Payments are mocked while `PAYMENT_MOCK` is on (defaults to `DEBUG`; settings refuse it with
   `DEBUG` off). Checkout then shows one "test payment" button; `core/payments.py` sends the
   order's customer details and amount to a fake provider that always approves, the order is
@@ -128,21 +140,12 @@ Found in the template and confirmed against the running app (October 2026 audit,
 
 #### Store dashboard
 
-- Products added in `/useradmin/` can't go live: `AddProductForm` has no status or featured
-  fields, so they stay `in_review` (publishing needs `/admin/`).
-- Tags are saved letter by letter ("breakfast, sweet" -> `a`, `b`, `e`, ...): `AddProductForm.tags`
-  is a plain `CharField`, so `save_m2m` iterates the string. Affects add and edit.
-- "Revenue" sums all orders, paid or not; the monthly figure ignores the year.
 
 ### Major
 
-- Cart quantities aren't validated: negative values give negative totals; an empty value makes
-  `/update-cart/` fail (500) and hides the refresh button; adding an item already in the cart
-  replaces its quantity instead of adding to it.
-- Stock is never checked when adding to cart or ordering, and orders don't reduce it
-  (`in_stock`/`stock_count` unused in views).
-- `Product.get_precentage` returns the price as a % of `old_price` (83 for 9.99/11.99), but
-  templates show it as the discount ("-83% Off").
+- `Product.sku` is generated as "sku" + 4 random digits and must be unique: only 10,000 values, so
+  saving a new product fails at random (IntegrityError) with a chance of (existing products) /
+  10,000, about 1 in 20 at 500 products.
 - Nothing sends email: contact messages are only stored (`ContactUs`, visible in `/admin/`); no
   order confirmations.
 
@@ -179,7 +182,6 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Mobile search doesn't search (`partials/base.html` ~line 393: `action="#"`, input has no
   `name`); the header search's category dropdown is demo data and ignored.
 - Newsletter "Subscribe" forms have no backend.
-- Shop page "Show"/"Sort by" dropdowns do nothing; no pagination (it is commented out).
 - The product page "Delivery" box labels the default address "Verified Address" and others
   "Unverified Address" (it only reflects the default flag).
 - Other leftover content: "Desphixs" branding (`JAZZMIN_SETTINGS`, footer in
@@ -188,19 +190,14 @@ Found in the template and confirmed against the running app (October 2026 audit,
 - Missing static files: preloader image tag is malformed (`partials/base.html` ~line 686),
   relative `favicon.svg` and `slider-range.css` paths (404 on most pages),
   `assets/imgs/page/contact-2.png`, `assets/imgs/theme/icons/logo-{apple,facebook,google}.svg`,
-  and a dead Cloudflare `email-decode.min.js` reference.
-- Cart prices come from the browser: `add_to_cart` trusts `price`/`title` GET params, and orders
-  are built from them. Must be fixed before taking real orders.
+  a dead Cloudflare `email-decode.min.js` reference, and `core/product-detail.html` calls
+  `hljs` before loading highlight.js from a broken relative URL (a JS error on every product page).
 - With `PAYMENT_MOCK` off, `payment_completed_view` marks an order paid on visit without
   verifying the Stripe payment.
-- `create_checkout_session` is `csrf_exempt` with no sign-in or ownership check, and resets
-  `paid_status` to False on whatever order ID it is given.
 - Checkout JS uses `stripe.redirectToCheckout` (deprecated by Stripe) and a PayPal SDK
   `client-id=test`.
 - State-changing actions use GET without CSRF (cart, wishlist, default address, contact form,
   `useradmin` product delete); `change_order_status` is `csrf_exempt`.
-- Store-dashboard "Change Password" inputs are `type="text"` (passwords show while typing), and
-  it doesn't apply the password rules customers get (`PasswordChangeForm`).
 - Debug `print()` calls throughout the views; `save_checkout_info` prints customer details to the
   server log. Most features have no tests.
 
@@ -216,11 +213,20 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Browsing: home, shop, categories, vendors, tags and product pages (with image gallery).
 - Header search; results and "related products" show only published products (`/search/` without
   a term lists them all).
+- Store-dashboard revenue: "Revenue" sums paid orders; "Monthly Earning" is this month of this
+  year, paid only.
+- Store-dashboard product tags: "breakfast, sweet" saves two tags (taggit `TagField`), shown back
+  the same way when editing; tags are optional.
 - Products without a chosen vendor (store dashboard, admin) get Nacar and show on category,
   search and vendor pages.
 - Shop filters: category, vendor and price, alone or combined (none ticked lists everything).
+- Shop page "Sort by" (Featured, price up/down, release date, average rating) and "Show"
+  (50/100/150/200/All) with page links; the AJAX filter keeps the sort and lists all matches
+  unpaginated.
 - Add to cart from product lists (including filtered results) and the product page (quantity
-  respected).
+  respected); adding an item already in the cart adds to its quantity; quantities below 1,
+  empty or non-numeric are refused (browser and server) and the old value is restored; line
+  subtotals and totals are exact and use database prices.
 - Cart page: removing lines and changing quantities redraw it in place (no reload), keeping
   anything typed in the checkout details; "Proceed To CheckOut" then works.
 - Wishlist add and remove, with the header count updating live; the wishlist page lists only your own items, and removing someone
@@ -232,10 +238,19 @@ Confirmed in the October 2026 audit (browser and test client, with `seed_test_da
 - Password change in the dashboard's "Account details" tab: current password, new password
   twice (Django's password rules); errors reopen the tab; success says "Password changed
   successfully", keeps the user signed in and shows the Profile tab. The store dashboard's
-  password page also keeps the admin signed in and goes to "Profile setting".
+  password page works the same way (same form and rules, hidden inputs) and goes to "Profile
+  setting".
 - Adding addresses and setting a default (only your own addresses change); the product page
   "Delivery" box shows the default address (else the newest), or a sign-in/no-address prompt.
 - Order history and order detail in the customer dashboard.
 - Unknown products, categories, vendors and orders (storefront and store dashboard) give 404,
   and so does another user's order.
-- Checkout with the mock payment (`core/tests.py` covers it).
+- Discounts: badges and the struck-through old price show only for a real discount, as a whole
+  percentage off `old_price` (`get_precentage`: 17 for 9.99 vs 11.99); the cart charges the sale
+  price.
+- Stock: products show "N in stock" or "Out of stock" (no Add button); carts can't exceed stock
+  (add, update, checkout); paying takes the quantities off stock, all or nothing, and a payment
+  is refused if stock ran out meanwhile.
+- Checkout with the mock payment (`core/tests.py` covers it). With `PAYMENT_MOCK=False`,
+  `create_checkout_session` (Stripe) needs POST, sign-in, CSRF and the user's own unpaid order,
+  and never resets `paid_status` (tested with Stripe mocked; no real Stripe run yet).

@@ -1,4 +1,6 @@
 import shutil
+from decimal import Decimal
+from unittest import mock
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -9,16 +11,17 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from taggit.models import Tag
 
-from core.models import Address, CartOrder, CartOrderProducts, Category, Product, Vendor, wishlist_model
+from core.models import Address, CartOrder, CartOrderProducts, Category, Product, ProductReview, Vendor, wishlist_model
+from core.payments import pay_order
 from userauths.models import User
 
 
 # Smallest valid GIF, for image uploads in tests.
 GIF = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
 
-CART = {
-    "1": {"title": "Test Apple", "qty": "2", "price": "1.50", "image": "/media/apple.jpg", "pid": "abc123"},
-}
+def cart_of(**quantities):
+    """A session cart holding the given quantities of real products, by title."""
+    return {str(Product.objects.get(title=title).id): {"qty": qty} for title, qty in quantities.items()}
 
 
 @override_settings(PAYMENT_MOCK=True)
@@ -26,6 +29,7 @@ class MockPaymentTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
         self.order = CartOrder.objects.create(user=self.user, price="3.00", full_name="Buyer", email="buyer@example.com")
+        Product.objects.create(title="Test Apple", price="1.50", product_status="published")
         self.pay_url = reverse("core:mock-payment", args=[self.order.oid])
         self.client.force_login(self.user)
 
@@ -39,7 +43,7 @@ class MockPaymentTests(TestCase):
         self.assertEqual(self.order.paid_status, paid)
 
     def test_checkout_info_creates_order_and_shows_mock_pay_button(self):
-        self.set_cart(CART)
+        self.set_cart(cart_of(**{"Test Apple": 2}))
         response = self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer", "email": "buyer@example.com"})
 
         order = CartOrder.objects.exclude(pk=self.order.pk).get(user=self.user)
@@ -61,7 +65,7 @@ class MockPaymentTests(TestCase):
         self.assertTrue(response.url.startswith(reverse("userauths:sign-in")))
 
     def test_pay_marks_order_paid_and_empties_cart(self):
-        self.set_cart(CART)
+        self.set_cart(cart_of(**{"Test Apple": 2}))
         response = self.client.post(self.pay_url)
 
         self.assertRedirects(response, reverse("core:payment-completed", args=[self.order.oid]))
@@ -206,10 +210,9 @@ class CartRedrawTests(TestCase):
         self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
         self.client.force_login(self.user)
         session = self.client.session
-        session["cart_data_obj"] = {
-            **CART,
-            "2": {"title": "Test Pear", "qty": "1", "price": "2.00", "image": "/media/pear.jpg", "pid": "def456"},
-        }
+        self.apple = Product.objects.create(title="Test Apple", price="1.50", product_status="published")
+        self.pear = Product.objects.create(title="Test Pear", price="2.00", product_status="published")
+        session["cart_data_obj"] = cart_of(**{"Test Apple": 2, "Test Pear": 1})
         session.save()
 
     def assert_full_cart(self, html):
@@ -219,7 +222,7 @@ class CartRedrawTests(TestCase):
         self.assertIn("Proceed To CheckOut", html)
 
     def test_removing_a_line_returns_the_whole_cart_with_its_form(self):
-        response = self.client.get(reverse("core:delete-from-cart"), {"id": "1"})
+        response = self.client.get(reverse("core:delete-from-cart"), {"id": self.apple.id})
         self.assertEqual(response.json()["totalcartitems"], 1)
         html = response.json()["data"]
         self.assert_full_cart(html)
@@ -227,7 +230,7 @@ class CartRedrawTests(TestCase):
         self.assertNotIn("Test Apple", html)
 
     def test_updating_a_quantity_returns_the_whole_cart_with_its_form(self):
-        html = self.client.get(reverse("core:update-cart"), {"id": "2", "qty": "3"}).json()["data"]
+        html = self.client.get(reverse("core:update-cart"), {"id": self.pear.id, "qty": "3"}).json()["data"]
         self.assert_full_cart(html)
         self.assertIn('value="3"', html)
 
@@ -441,3 +444,284 @@ class DeliveryAddressTests(TestCase):
         Address.objects.create(user=other, address="Not Mine", status=True)
         self.client.force_login(self.user)
         self.assertNotContains(self.client.get(self.url), "Not Mine")
+
+
+@override_settings(PAYMENT_MOCK=False)
+class StripeCheckoutSessionTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.order = CartOrder.objects.create(user=self.user, price="12.50", email="buyer@example.com")
+        self.url = reverse("core:api_checkout_session", args=[self.order.oid])
+        self.client.force_login(self.user)
+        session = mock.MagicMock(id="cs_test_123")  # Stripe's object supports both session.id and session["id"]
+        session.__getitem__.return_value = "cs_test_123"
+        patcher = mock.patch("core.views.stripe.checkout.Session.create", return_value=session)
+        self.create_session = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_own_order_gets_a_session_without_touching_paid_status(self):
+        response = self.client.post(self.url)
+        self.assertEqual(response.json(), {"sessionId": "cs_test_123"})
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.stripe_payment_intent, "cs_test_123")
+        self.assertFalse(self.order.paid_status)
+
+    def test_paid_order_is_not_reset_or_sent_again(self):
+        CartOrder.objects.filter(pk=self.order.pk).update(paid_status=True)
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 400)
+        self.create_session.assert_not_called()
+        self.order.refresh_from_db()
+        self.assertTrue(self.order.paid_status)
+
+    def test_other_users_order_is_not_found(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        self.client.force_login(other)
+        self.assertEqual(self.client.post(self.url).status_code, 404)
+        self.create_session.assert_not_called()
+
+    def test_checkout_page_sends_the_csrf_token(self):
+        page = self.client.get(reverse("core:checkout", args=[self.order.oid])).content.decode()
+        self.assertRegex(page, r'"X-CSRFToken": "[A-Za-z0-9]{32,}"')
+
+    def test_requires_sign_in_post_and_csrf(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(self.url).status_code, 403)
+        self.client.logout()
+        self.assertEqual(self.client.post(self.url).status_code, 401)
+        self.create_session.assert_not_called()
+
+
+class CartRulesTests(TestCase):
+    def setUp(self):
+        self.apple = Product.objects.create(title="Apple", price="1.50", product_status="published")
+        self.draft = Product.objects.create(title="Draft", price="1.00")
+
+    def add(self, product, qty, **extra):
+        return self.client.get(reverse("core:add-to-cart"), {"id": product.id, "qty": qty, **extra})
+
+    def cart(self):
+        return self.client.session["cart_data_obj"]
+
+    def test_adding_again_adds_to_the_quantity(self):
+        self.add(self.apple, 2)
+        self.add(self.apple, 3)
+        self.assertEqual(self.cart()[str(self.apple.id)]["qty"], 5)
+
+    def test_prices_come_from_the_database_not_the_browser(self):
+        self.add(self.apple, 2, price="0.01", title="Free Apple")
+        line = self.cart()[str(self.apple.id)]
+        self.assertEqual((line["title"], line["price"], line["subtotal"]), ("Apple", "1.50", "3.00"))
+
+    def test_price_changes_reach_carts_already_holding_the_product(self):
+        self.add(self.apple, 2)
+        Product.objects.filter(pk=self.apple.pk).update(price="2.00")
+        page = self.client.get(reverse("core:cart"))
+        self.assertEqual(page.context["cart_total_amount"], Decimal("4.00"))
+
+    def test_invalid_quantities_are_refused(self):
+        for qty in ["0", "-2", "", "abc", "1.5"]:
+            response = self.add(self.apple, qty)
+            self.assertEqual(response.status_code, 400, qty)
+        self.assertNotIn(str(self.apple.id), self.client.session.get("cart_data_obj", {}))
+
+    def test_update_refuses_invalid_quantities_and_keeps_the_old_one(self):
+        self.add(self.apple, 2)
+        for qty in ["0", "-1", "", "x"]:
+            response = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": qty})
+            self.assertEqual(response.status_code, 400, qty)
+            self.assertIn("error", response.json())
+            self.assertIn("data", response.json())  # the unchanged cart, so the page can undo the edit
+        self.assertEqual(self.cart()[str(self.apple.id)]["qty"], 2)
+
+    def test_unpublished_or_unknown_products_cannot_be_added(self):
+        self.assertEqual(self.add(self.draft, 1).status_code, 404)
+        self.assertEqual(self.client.get(reverse("core:add-to-cart"), {"id": "abc", "qty": 1}).status_code, 404)
+
+    def test_line_subtotals_are_exact(self):
+        Product.objects.filter(pk=self.apple.pk).update(price="6.49")
+        self.add(self.apple, 2)
+        self.assertContains(self.client.get(reverse("core:cart")), "$12.98")
+
+
+@override_settings(PAYMENT_MOCK=True)
+class StockTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(self.user)
+        self.apple = Product.objects.create(title="Apple", price="1.50", stock_count=3, product_status="published")
+
+    def add(self, qty):
+        return self.client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": qty})
+
+    def place_order(self, client=None, user=None):
+        (client or self.client).post(reverse("core:save_checkout_info"), {"full_name": "Buyer", "email": "buyer@example.com"})
+        return CartOrder.objects.filter(user=user or self.user).latest("id")
+
+    def pay(self, order, client=None):
+        return (client or self.client).post(reverse("core:mock-payment", args=[order.oid]))
+
+    def stock(self):
+        self.apple.refresh_from_db()
+        return self.apple.stock_count
+
+    def test_adding_more_than_in_stock_is_refused(self):
+        self.assertEqual(self.add(2).status_code, 200)
+        response = self.add(2)  # 4 in total
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "Sorry, only 3 of Apple left in stock.")
+        self.assertEqual(self.client.session["cart_data_obj"][str(self.apple.id)]["qty"], 2)
+
+    def test_switched_off_products_are_out_of_stock(self):
+        Product.objects.filter(pk=self.apple.pk).update(in_stock=False)
+        response = self.add(1)
+        self.assertEqual((response.status_code, response.json()["error"]), (409, "Sorry, Apple is out of stock."))
+
+    def test_updating_beyond_stock_is_refused(self):
+        self.add(1)
+        response = self.client.get(reverse("core:update-cart"), {"id": self.apple.id, "qty": 5})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("data", response.json())
+        self.assertEqual(self.client.session["cart_data_obj"][str(self.apple.id)]["qty"], 1)
+
+    def test_checkout_rechecks_stock(self):
+        self.add(3)
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=1)
+        response = self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
+        self.assertRedirects(response, reverse("core:cart"), fetch_redirect_response=False)
+        self.assertFalse(CartOrder.objects.exists())
+
+    def test_paying_deducts_stock(self):
+        self.add(2)
+        order = self.place_order()
+        self.assertEqual(self.stock(), 3)  # placing the order doesn't take stock
+        self.pay(order)
+        order.refresh_from_db()
+        self.assertTrue(order.paid_status)
+        self.assertEqual(self.stock(), 1)
+
+    def test_payment_is_refused_when_stock_ran_out_meanwhile(self):
+        self.add(2)
+        order = self.place_order()
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=1)
+        response = self.pay(order)
+        self.assertRedirects(response, reverse("core:cart"), fetch_redirect_response=False)
+        order.refresh_from_db()
+        self.assertFalse(order.paid_status)
+        self.assertIsNone(order.stripe_payment_intent)
+        self.assertEqual(self.stock(), 1)
+
+    def test_two_buyers_cannot_both_take_the_last_items(self):
+        other = User.objects.create_user(username="other", email="other@example.com", password="pass-12345")
+        other_client = Client()
+        other_client.force_login(other)
+        self.add(3)
+        other_client.get(reverse("core:add-to-cart"), {"id": self.apple.id, "qty": 3})
+        first, second = self.place_order(), self.place_order(other_client, other)
+        self.pay(first)
+        self.pay(second, other_client)
+        first.refresh_from_db(), second.refresh_from_db()
+        self.assertEqual((first.paid_status, second.paid_status), (True, False))
+        self.assertEqual(self.stock(), 0)
+
+    def test_failed_payment_keeps_the_stock(self):
+        self.add(2)
+        order = self.place_order()
+        with mock.patch("core.views.pay_order", return_value={"status": "failed", "id": "x"}):
+            response = self.pay(order)
+        self.assertRedirects(response, reverse("core:payment-failed"), fetch_redirect_response=False)
+        self.assertEqual(self.stock(), 3)
+
+    def test_out_of_stock_is_shown(self):
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=0)
+        self.assertContains(self.client.get(reverse("core:product-detail", args=[self.apple.pid])), "Out of stock")
+        self.assertContains(self.client.get(reverse("core:product-list")), "Out of stock")
+        Product.objects.filter(pk=self.apple.pk).update(stock_count=3)
+        self.assertContains(self.client.get(reverse("core:product-detail", args=[self.apple.pid])), "3 in stock")
+
+
+class DiscountTests(TestCase):
+    def test_discount_percentage(self):
+        for price, old_price, expected in [("9.99", "11.99", 17), ("5.00", "10.00", 50), ("5.00", "5.00", 0),
+                                           ("5.00", "2.99", 0), ("5.00", "0.00", 0), ("9.99", "10.00", 0)]:
+            product = Product(price=Decimal(price), old_price=Decimal(old_price))
+            self.assertEqual(product.get_precentage(), expected, f"{price} vs {old_price}")
+
+    def test_badge_and_old_price_only_show_for_a_real_discount(self):
+        on_sale = Product.objects.create(title="On Sale", price="9.99", old_price="11.99", product_status="published")
+        full = Product.objects.create(title="Full Price", price="5.00", old_price="2.99", product_status="published")
+        page = self.client.get(reverse("core:product-detail", args=[on_sale.pid]))
+        self.assertContains(page, "-17% Off")
+        self.assertContains(page, "$11.99")
+        page = self.client.get(reverse("core:product-detail", args=[full.pid]))
+        self.assertNotContains(page, "% Off")
+        self.assertNotContains(page, "$2.99")
+
+    def test_cart_uses_the_sale_price(self):
+        on_sale = Product.objects.create(title="On Sale", price="9.99", old_price="11.99", product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": on_sale.id, "qty": 2})
+        page = self.client.get(reverse("core:cart"))
+        self.assertEqual(page.context["cart_total_amount"], Decimal("19.98"))
+
+
+class ShopSortingTests(TestCase):
+    def setUp(self):
+        for title, price, featured in [("Cheap", "1.00", False), ("Pricey", "9.00", False), ("Middle", "5.00", True)]:
+            Product.objects.create(title=title, price=price, featured=featured, product_status="published")
+
+    def titles(self, **params):
+        return [p.title for p in self.client.get(reverse("core:product-list"), params).context["products"]]
+
+    def test_sort_options(self):
+        self.assertEqual(self.titles(), ["Middle", "Pricey", "Cheap"])  # featured first, then newest
+        self.assertEqual(self.titles(sort="price-asc"), ["Cheap", "Middle", "Pricey"])
+        self.assertEqual(self.titles(sort="price-desc"), ["Pricey", "Middle", "Cheap"])
+        self.assertEqual(self.titles(sort="newest"), ["Middle", "Pricey", "Cheap"])
+        self.assertEqual(self.titles(sort="nonsense"), self.titles())
+
+    def test_rating_sort_puts_unrated_last(self):
+        user = User.objects.create_user(username="r", email="r@example.com", password="pass-12345")
+        ProductReview.objects.create(user=user, product=Product.objects.get(title="Cheap"), review="ok", rating=5)
+        ProductReview.objects.create(user=user, product=Product.objects.get(title="Pricey"), review="meh", rating=2)
+        self.assertEqual(self.titles(sort="rating"), ["Cheap", "Pricey", "Middle"])
+
+    def test_show_and_pagination(self):
+        for n in range(60):  # explicit SKUs: generated ones have only 10,000 values and can collide
+            Product.objects.create(title=f"Bulk {n}", sku=f"bulk{n}", price="2.00", product_status="published")
+        page = self.client.get(reverse("core:product-list"))
+        self.assertEqual(len(page.context["products"]), 50)
+        self.assertContains(page, "We found <strong class=\"text-brand\">63</strong>")
+        self.assertContains(page, 'href="?page=2"')
+        second = self.client.get(reverse("core:product-list"), {"page": 2, "sort": "price-asc"})
+        self.assertEqual(len(second.context["products"]), 13)
+        self.assertEqual(len(self.client.get(reverse("core:product-list"), {"show": "all"}).context["products"]), 63)
+        self.assertNotContains(self.client.get(reverse("core:product-list"), {"show": "all"}), 'class="pagination-area')
+
+    def test_dropdown_links_keep_the_other_choice(self):
+        page = self.client.get(reverse("core:product-list"), {"sort": "price-desc", "show": "100"}).content.decode()
+        self.assertIn('href="?sort=price-asc&amp;show=100"', page)
+        self.assertIn('href="?sort=price-desc&amp;show=200"', page)
+
+    def test_filter_keeps_the_sort(self):
+        data = self.client.get(reverse("core:filter-product"), {"sort": "price-desc"}).json()["data"]
+        positions = [data.index(f">{title}</a>") for title in ["Pricey", "Middle", "Cheap"]]
+        self.assertEqual(positions, sorted(positions))
+
+
+@override_settings(PAYMENT_MOCK=True)
+class PayOnceTests(TestCase):
+    def test_a_second_pay_request_neither_charges_nor_deducts_again(self):
+        user = User.objects.create_user(username="buyer", email="buyer@example.com", password="pass-12345")
+        self.client.force_login(user)
+        apple = Product.objects.create(title="Apple", price="1.50", stock_count=5, product_status="published")
+        self.client.get(reverse("core:add-to-cart"), {"id": apple.id, "qty": 2})
+        self.client.post(reverse("core:save_checkout_info"), {"full_name": "Buyer"})
+        order = CartOrder.objects.get(user=user)
+        with mock.patch("core.views.pay_order", wraps=pay_order) as charge:
+            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+            self.client.post(reverse("core:mock-payment", args=[order.oid]))
+        self.assertEqual(charge.call_count, 1)
+        apple.refresh_from_db()
+        self.assertEqual(apple.stock_count, 3)

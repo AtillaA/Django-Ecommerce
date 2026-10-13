@@ -129,8 +129,7 @@ class Product(models.Model):
     # specifications = models.TextField(null=True, blank=True)
     type = models.CharField(
         max_length=100, default="Organic", null=True, blank=True)
-    stock_count = models.CharField(
-        max_length=100, default="10", null=True, blank=True)
+    stock_count = models.PositiveIntegerField(default=10)
     life = models.CharField(
         max_length=100, default="100 Days", null=True, blank=True)
     mfd = models.DateTimeField(auto_now_add=False, null=True, blank=True)
@@ -167,9 +166,20 @@ class Product(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def available_stock(self):
+        """How many can be sold now: 0 when the product is switched out of stock.
+
+        The single place stock is read; when the ERP is connected, read it from there
+        (core/stock.py takes sales out of stock).
+        """
+        return self.stock_count if self.in_stock else 0
+
     def get_precentage(self):
-        new_price = (self.price / self.old_price) * 100
-        return new_price
+        """Discount off old_price as a whole percentage (17 for 9.99 vs 11.99); 0 when there is none."""
+        if not self.old_price or self.old_price <= self.price:
+            return 0
+        return round((self.old_price - self.price) / self.old_price * 100)
 
 
 class ProductImages(models.Model):
@@ -223,6 +233,7 @@ class CartOrder(models.Model):
 
 class CartOrderProducts(models.Model):
     order = models.ForeignKey(CartOrder, on_delete=models.CASCADE)
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
     invoice_no = models.CharField(max_length=200)
     product_status = models.CharField(max_length=200)
     item = models.CharField(max_length=200)

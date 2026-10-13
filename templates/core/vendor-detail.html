@@ -137,7 +137,7 @@
                                     <a aria-label="Quick view" class="action-btn" data-bs-toggle="modal" data-bs-target="#quickViewModal"><i class="fi-rs-eye"></i></a>
                                 </div>
                                 <div class="product-badges product-badges-position product-badges-mrg">
-                                    <span class="hot">-{{p.get_precentage|floatformat:0}}%</span>
+                                    {% if p.get_precentage %}<span class="hot">-{{p.get_precentage|floatformat:0}}%</span>{% endif %}
                                 </div>
                             </div>
                             <div class="product-content-wrap">
@@ -155,7 +155,7 @@
                                 <p class="mt-15 mb-15">{{ p.description }}</p>
                                 <div class="product-price">
                                     <span>${{p.price}} </span>
-                                    <span class="old-price">${{p.old_price}}</span>
+                                    {% if p.get_precentage %}<span class="old-price">${{p.old_price}}</span>{% endif %}
                                 </div>
                                 <div class="mt-30 d-flex align-items-center">
                                     <a aria-label="Buy now" class="btn" href="shop-cart.html"><i class="fi-rs-shopping-cart mr-5"></i>Add to Cart</a>

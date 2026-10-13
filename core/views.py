@@ -8,17 +8,21 @@ from taggit.models import Tag
 from core.models import Coupon, Product, Category, Vendor, CartOrder, CartOrderProducts, ProductImages, ProductReview, wishlist_model, Address
 from userauths.models import ContactUs, Profile
 from core.forms import ProductReviewForm
+from core.cart import CART_SESSION_KEY, QUANTITY_ERROR, cart_line, cart_total, parse_quantity, refresh_cart
 from core.payments import pay_order
+from core.stock import OutOfStock, check_quantity, deduct_for_order
 from django.template.loader import render_to_string
 from django.contrib import messages
 
 from django.urls import reverse
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
+from django.views.decorators.http import require_POST
 from paypal.standard.forms import PayPalPaymentsForm
 from django.contrib.auth.decorators import login_required
 
-from django.db.models import Avg
+from django.core.paginator import Paginator
+from django.db.models import Avg, F
 from django.core import serializers
 
 def ajax_login_required(view):
@@ -43,13 +47,57 @@ def index(request):
     return render(request, 'core/index.html', context)
 
 
+# Shop page "Sort by" options: key -> (label, ordering)
+PRODUCT_SORTS = {
+    "featured": ("Featured", ["-featured", "-id"]),
+    "price-asc": ("Price: Low to High", ["price", "-id"]),
+    "price-desc": ("Price: High to Low", ["-price", "-id"]),
+    "newest": ("Release Date", ["-date", "-id"]),
+    "rating": ("Avg. Rating", [F("avg_rating").desc(nulls_last=True), "-id"]),
+}
+# Shop page "Show" options: products per page
+PAGE_SIZES = ["50", "100", "150", "200", "all"]
+
+
+def sort_products(products, sort):
+    """Order products by a PRODUCT_SORTS key; unknown keys sort as Featured."""
+    if sort not in PRODUCT_SORTS:
+        sort = "featured"
+    if sort == "rating":
+        products = products.annotate(avg_rating=Avg("reviews__rating"))
+    return products.order_by(*PRODUCT_SORTS[sort][1])
+
+
 def product_list_view(request):
-    products = Product.objects.filter(product_status="published").order_by("-id")
+    sort = request.GET.get("sort") if request.GET.get("sort") in PRODUCT_SORTS else "featured"
+    show = request.GET.get("show") if request.GET.get("show") in PAGE_SIZES else PAGE_SIZES[0]
+    products = sort_products(Product.objects.filter(product_status="published"), sort)
+    per_page = max(products.count(), 1) if show == "all" else int(show)
+    page = Paginator(products, per_page).get_page(request.GET.get("page"))
     tags = Tag.objects.all().order_by("-id")[:6]
 
+    def url_with(**changes):
+        """This page's URL with some query parameters changed (back to page 1 unless page is given)."""
+        params = request.GET.copy()
+        params.pop("page", None)
+        for key, value in changes.items():
+            params[key] = value  # replaces; QueryDict.update() would append
+        return f"?{params.urlencode()}"
+
     context = {
-        "products":products,
-        "tags":tags,
+        "products": page,
+        "page": page,
+        "tags": tags,
+        "sort_label": PRODUCT_SORTS[sort][0],
+        "sort_options": [(label, url_with(sort=key), key == sort) for key, (label, _) in PRODUCT_SORTS.items()],
+        "show_label": show.title(),
+        "show_options": [(size.title(), url_with(show=size), size == show) for size in PAGE_SIZES],
+        "page_links": [
+            (number, None if number == page.paginator.ELLIPSIS else url_with(page=number), number == page.number)
+            for number in page.paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)
+        ],
+        "previous_url": url_with(page=page.previous_page_number()) if page.has_previous() else None,
+        "next_url": url_with(page=page.next_page_number()) if page.has_next() else None,
     }
 
     return render(request, 'core/product-list.html', context)
@@ -210,91 +258,90 @@ def filter_product(request):
         products = products.filter(vendor__id__in=vendors)
 
 
+    products = sort_products(products, request.GET.get("sort"))
+
     data = render_to_string("core/async/product-list.html", {"products": products})
     return JsonResponse({"data": data})
 
 
 def add_to_cart(request):
-    cart_product = {}
+    product_id = request.GET.get("id", "")
+    if not product_id.isdigit():
+        raise Http404
+    product = get_object_or_404(Product, id=product_id, product_status="published")
+    qty = parse_quantity(request.GET.get("qty", 1))
+    if qty is None:
+        return JsonResponse({"error": QUANTITY_ERROR}, status=400)
 
-    cart_product[str(request.GET['id'])] = {
-        'title': request.GET['title'],
-        'qty': request.GET['qty'],
-        'price': request.GET['price'],
-        'image': request.GET['image'],
-        'pid': request.GET['pid'],
-    }
-
-    if 'cart_data_obj' in request.session:
-        if str(request.GET['id']) in request.session['cart_data_obj']:
-
-            cart_data = request.session['cart_data_obj']
-            cart_data[str(request.GET['id'])]['qty'] = int(cart_product[str(request.GET['id'])]['qty'])
-            cart_data.update(cart_data)
-            request.session['cart_data_obj'] = cart_data
-        else:
-            cart_data = request.session['cart_data_obj']
-            cart_data.update(cart_product)
-            request.session['cart_data_obj'] = cart_data
-
-    else:
-        request.session['cart_data_obj'] = cart_product
-    return JsonResponse({"data":request.session['cart_data_obj'], 'totalcartitems': len(request.session['cart_data_obj'])})
+    cart = refresh_cart(request)
+    if product_id in cart:
+        qty += cart[product_id]["qty"]  # adding an item already in the cart adds to its quantity
+    try:
+        check_quantity(product, qty)
+    except OutOfStock as error:
+        return JsonResponse({"error": str(error)}, status=409)
+    cart[product_id] = cart_line(product, qty)
+    request.session[CART_SESSION_KEY] = cart
+    return JsonResponse({"data": cart, 'totalcartitems': len(cart)})
 
 
 
 def cart_view(request):
-    cart_total_amount = 0
-    if 'cart_data_obj' in request.session:
-        for p_id, item in request.session['cart_data_obj'].items():
-            cart_total_amount += int(item['qty']) * float(item['price'])
-        return render(request, "core/cart.html", {"cart_data":request.session['cart_data_obj'], 'totalcartitems': len(request.session['cart_data_obj']), 'cart_total_amount':cart_total_amount})
+    if CART_SESSION_KEY in request.session:
+        cart = refresh_cart(request)
+        return render(request, "core/cart.html", {"cart_data": cart, 'totalcartitems': len(cart), 'cart_total_amount': cart_total(cart)})
     else:
         messages.warning(request, "Your cart is empty")
         return redirect("core:index")
 
 
-def delete_item_from_cart(request):
-    product_id = str(request.GET['id'])
-    if 'cart_data_obj' in request.session:
-        if product_id in request.session['cart_data_obj']:
-            cart_data = request.session['cart_data_obj']
-            del request.session['cart_data_obj'][product_id]
-            request.session['cart_data_obj'] = cart_data
-    
-    cart_total_amount = 0
-    if 'cart_data_obj' in request.session:
-        for p_id, item in request.session['cart_data_obj'].items():
-            cart_total_amount += int(item['qty']) * float(item['price'])
+def cart_fragment(request, cart, error=None, status=200):
+    """The redrawn cart (core/async/cart-list.html) for function.js's redrawCart(), plus any error."""
+    data = render_to_string("core/async/cart-list.html", {"cart_data": cart, 'totalcartitems': len(cart), 'cart_total_amount': cart_total(cart)}, request=request)
+    response = {"data": data, 'totalcartitems': len(cart)}
+    if error:
+        response["error"] = error
+    return JsonResponse(response, status=status)
 
-    context = render_to_string("core/async/cart-list.html", {"cart_data":request.session['cart_data_obj'], 'totalcartitems': len(request.session['cart_data_obj']), 'cart_total_amount':cart_total_amount}, request=request)
-    return JsonResponse({"data": context, 'totalcartitems': len(request.session['cart_data_obj'])})
+
+def delete_item_from_cart(request):
+    cart = refresh_cart(request)
+    cart.pop(str(request.GET.get("id", "")), None)
+    request.session[CART_SESSION_KEY] = cart
+    return cart_fragment(request, cart)
 
 
 def update_cart(request):
-    product_id = str(request.GET['id'])
-    product_qty = request.GET['qty']
+    cart = refresh_cart(request)
+    product_id = str(request.GET.get("id", ""))
+    qty = parse_quantity(request.GET.get("qty"))
+    if qty is None:
+        return cart_fragment(request, cart, error=QUANTITY_ERROR, status=400)
 
-    if 'cart_data_obj' in request.session:
-        if product_id in request.session['cart_data_obj']:
-            cart_data = request.session['cart_data_obj']
-            cart_data[str(request.GET['id'])]['qty'] = product_qty
-            request.session['cart_data_obj'] = cart_data
-    
-    cart_total_amount = 0
-    if 'cart_data_obj' in request.session:
-        for p_id, item in request.session['cart_data_obj'].items():
-            cart_total_amount += int(item['qty']) * float(item['price'])
-
-    context = render_to_string("core/async/cart-list.html", {"cart_data":request.session['cart_data_obj'], 'totalcartitems': len(request.session['cart_data_obj']), 'cart_total_amount':cart_total_amount}, request=request)
-    return JsonResponse({"data": context, 'totalcartitems': len(request.session['cart_data_obj'])})
+    if product_id in cart:
+        product = Product.objects.get(id=product_id)
+        try:
+            check_quantity(product, qty)
+        except OutOfStock as error:
+            return cart_fragment(request, cart, error=str(error), status=409)
+        cart[product_id] = cart_line(product, qty)
+        request.session[CART_SESSION_KEY] = cart
+    return cart_fragment(request, cart)
 
 
 @login_required
 def save_checkout_info(request):
-    cart_total_amount = 0
-    total_amount = 0
-    if request.method == "POST" and request.session.get("cart_data_obj"):
+    cart = refresh_cart(request)
+    if request.method == "POST" and cart:
+        # Stock may have changed since the items were added
+        products = Product.objects.in_bulk([int(product_id) for product_id in cart])
+        for product_id, item in cart.items():
+            try:
+                check_quantity(products[int(product_id)], item["qty"])
+            except OutOfStock as error:
+                messages.error(request, str(error))
+                return redirect("core:cart")
+
         full_name = request.POST.get("full_name")
         email = request.POST.get("email")
         mobile = request.POST.get("mobile")
@@ -320,13 +367,7 @@ def save_checkout_info(request):
         request.session['country'] = country
 
 
-        if 'cart_data_obj' in request.session:
-
-            # Getting total amount for Paypal Amount
-            for p_id, item in request.session['cart_data_obj'].items():
-                total_amount += int(item['qty']) * float(item['price'])
-
-
+        if cart:
             full_name = request.session['full_name']
             email = request.session['email']
             phone = request.session['mobile']
@@ -338,7 +379,7 @@ def save_checkout_info(request):
             # Create ORder Object
             order = CartOrder.objects.create(
                 user=request.user,
-                price=total_amount,
+                price=cart_total(cart),
                 full_name=full_name,
                 email=email,
                 phone=phone,
@@ -356,18 +397,16 @@ def save_checkout_info(request):
             del request.session['state']
             del request.session['country']
 
-            # Getting total amount for The Cart
-            for p_id, item in request.session['cart_data_obj'].items():
-                cart_total_amount += int(item['qty']) * float(item['price'])
-
+            for p_id, item in cart.items():
                 cart_order_products = CartOrderProducts.objects.create(
                     order=order,
+                    product_id=int(p_id),
                     invoice_no="INVOICE_NO-" + str(order.id), # INVOICE_NO-5,
                     item=item['title'],
                     image=item['image'],
                     qty=item['qty'],
                     price=item['price'],
-                    total=float(item['qty']) * float(item['price'])
+                    total=item['subtotal']
                 )
 
 
@@ -377,9 +416,12 @@ def save_checkout_info(request):
 
 
 
-@csrf_exempt
+@require_POST
+@ajax_login_required
 def create_checkout_session(request, oid):
-    order = CartOrder.objects.get(oid=oid)
+    order = get_object_or_404(CartOrder, oid=oid, user=request.user)
+    if order.paid_status:
+        return JsonResponse({"error": "This order is already paid."}, status=400)
     stripe.api_key = settings.STRIPE_SECRET_KEY
 
     checkout_session = stripe.checkout.Session.create(
@@ -402,7 +444,6 @@ def create_checkout_session(request, oid):
         cancel_url = request.build_absolute_uri(reverse("core:payment-completed", args=[order.oid]))
     )
 
-    order.paid_status = False
     order.stripe_payment_intent = checkout_session['id']
     order.save()
 
@@ -461,14 +502,22 @@ def mock_payment(request, oid):
     if request.method != "POST":
         return redirect("core:checkout", order.oid)
 
-    if not order.paid_status:
-        payment = pay_order(order)
-        if payment["status"] != "succeeded":
-            return redirect("core:payment-failed")
-        order.paid_status = True
-        order.stripe_payment_intent = payment["id"]
-        order.save()
-        request.session.pop("cart_data_obj", None)
+    # Stock comes off only when the payment goes through; all of it happens or none of it does.
+    # Claiming the order with a conditional UPDATE first means a double-click can't pay twice.
+    with transaction.atomic():
+        if CartOrder.objects.filter(pk=order.pk, paid_status=False).update(paid_status=True):
+            try:
+                deduct_for_order(order)
+            except OutOfStock as error:
+                transaction.set_rollback(True)
+                messages.error(request, str(error))
+                return redirect("core:cart")
+            payment = pay_order(order)
+            if payment["status"] != "succeeded":
+                transaction.set_rollback(True)
+                return redirect("core:payment-failed")
+            CartOrder.objects.filter(pk=order.pk).update(stripe_payment_intent=payment["id"])
+            request.session.pop("cart_data_obj", None)
 
     return redirect("core:payment-completed", order.oid)
 

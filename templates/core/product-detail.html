@@ -50,7 +50,7 @@
                                     </div>
                                     <div class="col-md-6 col-sm-12 col-xs-12">
                                         <div class="detail-info pr-30 pl-30">
-                                            <span class="stock-status out-stock"> -{{p.get_precentage|floatformat:0}}% </span>
+                                            {% if p.get_precentage %}<span class="stock-status out-stock"> -{{p.get_precentage|floatformat:0}}% </span>{% endif %}
                                             <h2 class="title-detail">{{p.title}}</h2>
                                             <div class="product-detail-rating">
                                                 <div class="product-rate-cover text-end">
@@ -64,8 +64,8 @@
                                                 <div class="product-price primary-color float-left">
                                                     <span class="current-price text-brand">$</span><span class="current-price text-brand current-price current-product-price-{{ p.id }}" id="current-product-price">{{p.price}}</span>
                                                     <span>
-                                                        <span class="save-price font-md color3 ml-15">-{{p.get_precentage|floatformat:0}}% Off</span>
-                                                    <span class="old-price font-md ml-15">${{p.old_price}}</span>
+                                                        {% if p.get_precentage %}<span class="save-price font-md color3 ml-15">-{{p.get_precentage|floatformat:0}}% Off</span>{% endif %}
+                                                    {% if p.get_precentage %}<span class="old-price font-md ml-15">${{p.old_price}}</span>{% endif %}
                                                     </span>
                                                 </div>
                                             </div>
@@ -75,7 +75,7 @@
                                             
                                             <div class="detail-extralink mb-50">
                                                     <br>
-                                                    <input type="number" value="1" name="" id="product-quantity" class="w-25 mb-10 product-quantity-{{ p.id }}">
+                                                    <input type="number" min="1" step="1" value="1" name="" id="product-quantity" class="w-25 mb-10 product-quantity-{{ p.id }}">
                                                     <br>
                                                 <div class="product-extra-link2">
                                                     
@@ -85,7 +85,11 @@
                                                         <input type="hidden" class="product-title-{{ p.id }}" value="{{ p.title }}">
 
                                                     
+                                                    {% if p.available_stock %}
                                                     <button type="submit" class="button button-add-to-cart add-to-cart-btn" data-index="{{ p.id }}" id="add-to-cart-btn"><i class="fi-rs-shopping-cart"></i>Add to cart</button>
+                                                    {% else %}
+                                                    <button type="button" class="button button-add-to-cart" disabled>Out of stock</button>
+                                                    {% endif %}
                                                     <a aria-label="Add To Wishlist" class="action-btn hover-up add-to-wishlist" data-product-item="{{p.id}}"><i class="fi-rs-heart"></i></a>
                                                     <a aria-label="Compare" class="action-btn hover-up" href="shop-compare.html"><i class="fi-rs-shuffle"></i></a>
                                                 </div>
@@ -101,7 +105,7 @@
                                                     {% if p.tags %}
                                                     <li class="mb-5">Tags: {% for tag in p.tags.all %}<a href="{% url 'core:tags' tag.slug %}" rel="tag"> #{{tag.name}}</a>,{% endfor %} </li>
                                                     {% endif %}
-                                                    <li>Stock:<span class="in-stock text-brand ml-5">{{p.stock_count}} Items In Stock</span></li>
+                                                    <li>Stock:{% if p.available_stock %}<span class="in-stock text-brand ml-5">{{ p.available_stock }} in stock</span>{% else %}<span class="text-danger ml-5">Out of stock</span>{% endif %}</li>
                                                 </ul>
                                             </div>
                                         </div>
@@ -409,7 +413,7 @@
                                                             <a href="{% url 'core:product-detail' p.pid %}" class="action-btn"><i class="fi-rs-eye"></i></a>
                                                         </div>
                                                         <div class="product-badges product-badges-position product-badges-mrg">
-                                                            <span class="hot">-{{p.get_precentage|floatformat:0}}%</span>
+                                                            {% if p.get_precentage %}<span class="hot">-{{p.get_precentage|floatformat:0}}%</span>{% endif %}
                                                         </div>
                                                     </div>
                                                     <div class="product-content-wrap">
@@ -432,7 +436,7 @@
                                                         <div class="product-card-bottom">
                                                             <div class="product-price">
                                                                 <span>$</span> <span class="current-product-price-{{ p.id }}">{{p.price}}</span>
-                                                                <span class="old-price">${{p.old_price}}</span>
+                                                                {% if p.get_precentage %}<span class="old-price">${{p.old_price}}</span>{% endif %}
                                                             </div>
                                                             <div class="add-cart">
                                                                 <input type="hidden" value="1" id="product-quantity" class="product-quantity-{{ p.id }}">
@@ -441,7 +445,11 @@
                                                                 <input type="hidden" class="product-id-{{ p.id }}" value="{{ p.id }}">
                                                                 <input type="hidden" class="product-title-{{ p.id }}" value="{{ p.title }}">
                                                                 <div class="d-flex">
+                                                                    {% if p.available_stock %}
                                                                     <button class="add add-to-cart-btn" data-index="{{ p.id }}" style="border: none;" id="add-to-cart-btn"><i class="fi-rs-shopping-cart mr-5"></i>Add</button>
+                                                                    {% else %}
+                                                                    <span class="text-danger font-small">Out of stock</span>
+                                                                    {% endif %}
                                                                     <button style="border: none; background: none;" class="add-to-wishlist" data-product-item="{{p.id}}"><i class="fi-rs-heart" style="fill: aqua;"></i></button>
                                                                 </div>
                                                                 <!-- <button class="add add-to-cart-btn" data-index="{{ p.id }}" style="border: none;" id="add-to-cart-btn"><i class="fi-rs-shopping-cart mr-5"></i>Add</button> -->

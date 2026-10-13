@@ -52,7 +52,7 @@
                                         <span class="text-brand">$</span><span class="text-brand current-product-price-{{ w.product.id }}">{{ w.product.price }}</span>
                                     </td>
                                     <td class="text-center detail-info" data-title="Stock">
-                                        <span class="stock-status in-stock mb-0"> {% if w.product.in_stock %} In Stock {% else %} Out of Stock {% endif %}</span>
+                                        <span class="stock-status in-stock mb-0"> {% if w.product.available_stock %} In Stock {% else %} Out of Stock {% endif %}</span>
                                     </td>
                                     <td class="text-right" data-title="Cart">
 
@@ -63,7 +63,11 @@
                                         <input type="hidden" class="product-id-{{ w.product.id }}" value="{{ w.product.id }}">
                                         <input type="hidden" class="product-title-{{ w.product.id }}" value="{{ w.product.title }}">
 
+                                        {% if w.product.available_stock %}
                                         <button class="btn btn-sm add-to-cart-btn" data-index="{{ w.product.id }}">Add to cart</button>
+                                        {% else %}
+                                        <span class="text-danger font-small">Out of stock</span>
+                                        {% endif %}
                                     </td>
                                     <td class="action text-center" data-title="Remove">
                                         <button style="border: none; background: none;" data-wishlist-product="{{ w.id }}"  class="text-body delete-wishlist-product"><i class="fi-rs-trash"></i></button>

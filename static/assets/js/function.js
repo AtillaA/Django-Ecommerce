@@ -81,6 +81,7 @@ $(document).ready(function () {
 
         filter_object.min_price = min_price;
         filter_object.max_price = max_price;
+        filter_object.sort = new URLSearchParams(window.location.search).get("sort") || "";  // keep the chosen "Sort by"
 
         $(".filter-checkbox").each(function () {
             let filter_value = $(this).val()
@@ -105,6 +106,7 @@ $(document).ready(function () {
                 console.log(response.length);
                 console.log("Data filtred successfully...");
                 $(".totall-product").hide()
+                $(".pagination-area").hide()  // filtered results come as one list
                 $("#filtered-product").html(response.data)
             }
         })
@@ -142,54 +144,46 @@ $(document).ready(function () {
     })
 
     // Add to cart functionality
-    // Delegated so buttons in lists redrawn by AJAX (e.g. the shop filter) work too
+    // Quantities are whole numbers of at least 1 (the server checks too)
+    function validQuantity(value) {
+        return /^\s*\d+\s*$/.test(value) && parseInt(value, 10) >= 1
+    }
+
+    // Shows the server's reason when it refuses a cart change (bad quantity, not enough stock)
+    function showCartError(xhr) {
+        if (xhr.responseJSON && xhr.responseJSON.error) {
+            alert(xhr.responseJSON.error)
+        }
+    }
+
+
+    // Delegated so buttons in lists redrawn by AJAX (e.g. the shop filter) work too.
+    // Only the product ID and quantity are sent: the server takes title and price from the database.
     $(document).on("click", ".add-to-cart-btn", function () {
 
         let this_val = $(this)
         let index = this_val.attr("data-index")
+        let quantity_input = $(".product-quantity-" + index)
+        let quantity = quantity_input.val()
 
-        let quantity = $(".product-quantity-" + index).val()
-        let product_title = $(".product-title-" + index).val()
-
-        let product_id = $(".product-id-" + index).val()
-        let product_price = $(".current-product-price-" + index).text()
-
-        let product_pid = $(".product-pid-" + index).val()
-        let product_image = $(".product-image-" + index).val()
-
-
-        console.log("Quantity:", quantity);
-        console.log("Title:", product_title);
-        console.log("Price:", product_price);
-        console.log("ID:", product_id);
-        console.log("PID:", product_pid);
-        console.log("Image:", product_image);
-        console.log("Index:", index);
-        console.log("Currrent Element:", this_val);
+        if (!validQuantity(quantity)) {
+            alert("Quantity must be a whole number of at least 1.")
+            quantity_input.val(1)
+            return
+        }
 
         $.ajax({
-            url: '/add-to-cart',
+            url: '/add-to-cart/',
             data: {
-                'id': product_id,
-                'pid': product_pid,
-                'image': product_image,
+                'id': index,
                 'qty': quantity,
-                'title': product_title,
-                'price': product_price,
             },
             dataType: 'json',
-            beforeSend: function () {
-                console.log("Adding Product to Cart...");
-            },
             success: function (response) {
-                // this_val.html("✓")
                 this_val.html("<i class='fas fa-check-circle'></i>")
-
-                console.log("Added Product to Cart!");
                 $(".cart-items-count").text(response.totalcartitems)
-
-
-            }
+            },
+            error: showCartError
         })
     })
 
@@ -236,13 +230,17 @@ $(document).ready(function () {
 
         let product_id = $(this).attr("data-product")
         let this_val = $(this)
-        let product_quantity = $(".product-qty-" + product_id).val()
+        let quantity_input = $(".product-qty-" + product_id)
+        let product_quantity = quantity_input.val()
 
-        console.log("PRoduct ID:", product_id);
-        console.log("PRoduct QTY:", product_quantity);
+        if (!validQuantity(product_quantity)) {
+            alert("Quantity must be a whole number of at least 1. Use the bin to remove an item.")
+            quantity_input.val(quantity_input.prop("defaultValue"))
+            return
+        }
 
         $.ajax({
-            url: "/update-cart",
+            url: "/update-cart/",
             data: {
                 "id": product_id,
                 "qty": product_quantity,
@@ -253,6 +251,14 @@ $(document).ready(function () {
             },
             success: function (response) {
                 redrawCart(response)
+            },
+            error: function (xhr) {
+                // The server sends the unchanged cart with its reason; redraw it to undo the edit
+                if (xhr.responseJSON && xhr.responseJSON.data) {
+                    redrawCart(xhr.responseJSON)
+                }
+                this_val.show()
+                showCartError(xhr)
             }
         })
 
